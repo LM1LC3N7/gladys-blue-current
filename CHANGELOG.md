@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-19
+
 ### Added
 
 - Blue Current charge points through the official WebSocket API (the one of
@@ -31,4 +33,5 @@ the notes of the version's GitHub Release.
   to 6 hours); the duration of a session moves every minute while charging;
   a charge point removed from the account shows unreachable.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-blue-current/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-blue-current/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-blue-current/releases/tag/v0.1.1
