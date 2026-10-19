@@ -1,67 +1,88 @@
-# Template de démonstration
+# Blue Current
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Affiche vos bornes **Blue Current** (Pays-Bas, Belgique) dans Gladys, en
+temps réel, par l'API officielle que Blue Current propose pour la domotique
+(celle de son intégration Home Assistant).
+
+**Jamais testée avec un vrai compte** : cette intégration a été écrite à
+partir de la bibliothèque que Blue Current publie pour Home Assistant, et
+testée seulement sur des réponses simulées. Sans lien avec Blue Current.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil Gladys par borne, avec :
+
+- **État** : disponible, en charge, bloquée, erreur, hors ligne ;
+- **Connecteur** et **état de charge** (les fonctionnalités « borne de
+  recharge » de Gladys) ;
+- **Véhicule** : aucun véhicule, véhicule branché, prêt à charger, erreur ;
+- **Puissance** (W), **courant** et **tension** par phase (L1, L2, L3) ;
+- **Énergie de la session** (kWh), **durée de la session** (minutes),
+  **coût de la session** (€, quand Blue Current le donne : il documente
+  cette valeur comme désactivée pour l'instant), **courant maximal** (A).
+
+Et, seulement si vous les autorisez (voir plus bas) :
+
+- **Démarrer une session** et **Arrêter la session** (boutons) ;
+- **Disponibilité** (une liste : disponible / bloquée), pour bloquer ou
+  débloquer la borne ;
+- **Redémarrer la borne** (un bouton), derrière son option à part.
+
+Les commandes sont des boutons et une liste, jamais des interrupteurs : un
+« éteins tout » d'un assistant vocal ou d'une scène ne peut pas les atteindre.
+
+## Créer le jeton d'API
+
+1. Connectez-vous au portail conducteur de Blue Current,
+   [my.bluecurrent.nl](https://my.bluecurrent.nl), avec le compte de votre
+   borne.
+2. Ouvrez les paramètres, puis **Avancé** (« Advanced »), et créez le
+   **jeton d'API Home Assistant** (« Home Assistant API token »).
+   (L'application Blue Current le propose peut-être aussi ; non vérifié.)
+3. Copiez le jeton.
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. Dans Gladys, ouvrez l'intégration, collez le jeton dans **Jeton d'API
+   Blue Current**, enregistrez. Le jeton est gardé par Gladys dans sa base,
+   jamais réaffiché, et envoyé seulement à Blue Current.
+2. Le statut indique combien de bornes Blue Current liste. Ouvrez l'onglet
+   **Découverte** et ajoutez-les.
+3. Pour utiliser les commandes, activez **Autoriser les commandes**
+   (démarrer, arrêter, bloquer, débloquer) et, à part, **Autoriser le
+   redémarrage de la borne**. Les deux sont désactivées par défaut.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Bon à savoir
 
-## Actions
+- **Une seule connexion** : Blue Current envoie les changements, rien n'est
+  interrogé en boucle. Une connexion perdue revient seule, après quelques
+  secondes puis de plus en plus espacé (jusqu'à 10 minutes).
+- **Limite quotidienne de requêtes** : Blue Current limite les requêtes par
+  jour. Une fois atteinte, l'intégration attend minuit (heure d'Amsterdam)
+  avant de se reconnecter, même après un redémarrage.
+- **« Déjà ouverte ailleurs »** : Blue Current peut refuser une deuxième
+  connexion (un autre Gladys, un Home Assistant sur le même compte).
+  L'intégration attend alors au moins deux minutes entre deux essais.
+- **Jeton refusé** : l'intégration s'arrête et réessaie au bout de 6 heures,
+  puis toutes les 24 heures. Enregistrez un nouveau jeton, ou cliquez sur
+  **Tester la connexion**, pour réessayer tout de suite.
+- **Commandes** : avant chacune, l'état de la borne est relu ; la commande
+  est refusée s'il ne peut pas être lu, si la borne est hors ligne, ou s'il
+  n'y a rien à faire (démarrer pendant une charge…). Une commande à la fois.
+  Une session est démarrée avec la carte de recharge par défaut de la borne,
+  telle que Blue Current la donne. Gladys attend 5 secondes : si Blue Current
+  n'a pas confirmé d'ici là, Gladys affiche « Commande envoyée, sans
+  confirmation » : la commande a pu être exécutée, l'état suivra.
+- **Redémarrage** : la borne redémarre et une session en cours est coupée.
+- La puissance est la somme, sur les phases, de la tension par le courant
+  (l'intégration Home Assistant affiche une estimation un peu différente).
+- **Pas encore géré** : charge intelligente, « plug and charge », cartes
+  liées seulement, choix de la carte de recharge, état du réseau (charge du
+  bâtiment).
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Confidentialité
 
-## Scènes
-
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
-
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
-
-## Tableau de bord
-
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
-
-## Dépannage
-
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+L'intégration ne parle qu'à Blue Current (`wss://motown.bluecurrent.nl`).
+Elle n'écrit jamais le jeton dans les journaux. Dans `/data`, elle garde
+seulement la fin d'une pause pour limite de requêtes et, après un refus, une
+empreinte du jeton refusé avec l'heure du prochain essai.

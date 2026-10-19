@@ -1,45 +1,40 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration of the manifest `config_schema`, normalized.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
-export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
+import { createHash } from 'node:crypto';
+import { LIMITS } from './constants.js';
+
+/** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
+export const DEFAULTS = {
+  allow_commands: false,
+  allow_reboot: false,
+  language: 'fr',
 };
 
-/**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
- */
+export const LANGUAGES = ['fr', 'en'];
+
+/** A short hash of the API token: the token a stop belongs to, without the token itself. */
+export const tokenKey = (token) => createHash('sha256').update(token).digest('hex').slice(0, 16);
+
+/** A boolean field: only `true` (or the strings Gladys may send) turns it on. */
+const flag = (value) => value === true || value === 'true' || value === 1 || value === '1';
+
 export function normalizeConfig(raw = {}) {
+  let apiToken = typeof raw?.api_token === 'string' ? raw.api_token.trim() : '';
+  // A token is printable ASCII without spaces, bounded: anything else is not sent.
+  if (!/^[\x21-\x7e]+$/.test(apiToken) || apiToken.length > LIMITS.apiTokenLength) {
+    apiToken = '';
+  }
+  const language = String(raw?.language ?? DEFAULTS.language)
+    .trim()
+    .toLowerCase();
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    apiToken,
+    /** The hash of the token: a stop in /data belongs to it. */
+    account: apiToken === '' ? '' : tokenKey(apiToken),
+    allowCommands: flag(raw?.allow_commands),
+    allowReboot: flag(raw?.allow_reboot),
+    language: LANGUAGES.includes(language) ? language : DEFAULTS.language,
   };
 }
