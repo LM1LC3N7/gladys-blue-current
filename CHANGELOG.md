@@ -25,5 +25,10 @@ the notes of the version's GitHub Release.
   (Amsterdam time); a refused token stops, with spaced new tries; both kept
   across restarts.
 - "Test the connection" button, French and English documentation, cover.
+- A session is started only with a vehicle plugged in; nothing is sent when
+  there is nothing to do; "Stop the session" never waits for another command.
+- A Blue Current "slow down" (HTTP 429) waits for the time it asks (1 minute
+  to 6 hours); the duration of a session moves every minute while charging;
+  a charge point removed from the account shows unreachable.
 
 [Unreleased]: https://github.com/LM1LC3N7/gladys-blue-current/commits/main

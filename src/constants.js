@@ -7,19 +7,27 @@
 // library of the Blue Current integration of Home Assistant.
 // -----------------------------------------------------------------------------
 
+import { readFileSync } from 'node:fs';
+
 /** The WebSocket API of Blue Current for home automation (bluecurrent-api). */
 export const URL = 'wss://motown.bluecurrent.nl/haserver';
 
 /**
  * The client kind sent in the HELLO command. bluecurrent-api sends
  * "homeassistant": this endpoint is made for it, and no other value is
- * documented, so the same one is sent (see TODO.md, Decisions).
+ * documented, so the same one is sent, and never another one as a fallback
+ * (see TODO.md, Decisions, and the docs). The honest identity of the client
+ * is the User-Agent.
  */
 export const HELLO_HEADER = 'homeassistant';
 
+/** The version of this integration, from package.json (copied in the image). */
+export const VERSION = JSON.parse(
+  readFileSync(new globalThis.URL('../package.json', import.meta.url), 'utf8'),
+).version;
+
 /** An honest User-Agent on the WebSocket handshake. */
-export const USER_AGENT =
-  'gladys-blue-current/0.1 (+https://github.com/LM1LC3N7/gladys-blue-current)';
+export const USER_AGENT = `gladys-blue-current/${VERSION} (+https://github.com/LM1LC3N7/gladys-blue-current)`;
 
 /** Commands sent to Blue Current. */
 export const COMMANDS = {
@@ -147,6 +155,25 @@ export const TIMINGS = {
   /** The request limit: until 00:00:30 Europe/Amsterdam, bounded. */
   rateLimitMin: MINUTE,
   rateLimitMax: 25 * HOUR,
+  /** A bare HTTP 429 at the handshake: its Retry-After bounded to 1 min .. 6 h, 15 min without. */
+  tooManyMin: MINUTE,
+  tooManyMax: 6 * HOUR,
+  tooManyDefault: 15 * MINUTE,
+  /**
+   * A connection is stable once open this long with a pong: only then are the
+   * backoff and the trust in a fresh validation reset (never by the list alone).
+   */
+  stableAfter: 3 * MINUTE,
+  /** ERROR 1 or 2 within this time of a validation: the API token is refused. */
+  authRefusedWindow: 30 * MINUTE,
+  /** A normal close (1000), then the socket is cut. */
+  closeGrace: 2 * SECOND,
+  /** The late result of a command left without one is ignored this long. */
+  lateResultIgnore: 2 * MINUTE,
+  /** The same warning is logged at most once in this window. */
+  logWindow: 10 * MINUTE,
+  /** While charging, the duration is computed again every minute (no request). */
+  localRefresh: MINUTE,
   /** A refused API token: one new try after 6 h, then every 24 h. */
   refusedRetry: [6 * HOUR, 24 * HOUR],
   /** Longest a persisted pause or stop may still hold at a restart. */

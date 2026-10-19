@@ -20,12 +20,14 @@ import { errorCode, errorKind, isTokenAnswer, parseMessage, tokenOf } from './pr
 
 /** An error of the connection, with a kind the app understands (never a server text). */
 export class ChannelError extends Error {
-  constructor(kind, { status, code } = {}) {
+  constructor(kind, { status, code, retryAfter } = {}) {
     super(kind);
     this.name = 'ChannelError';
     this.kind = kind;
     this.status = status;
     this.code = code;
+    /** A 429: the Retry-After of the answer (ms), when it gives one. */
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -42,7 +44,13 @@ export function defaultSocketFactory(url, options) {
   return new WebSocket(url, { ...options, headers: { ...options.headers } });
 }
 
-/** The kind of a handshake refused by Blue Current, from its status and reject reason. */
+/**
+ * The kind of a handshake refused by Blue Current, from its status and
+ * reject reason. Only the documented reasons say "request limit" or "already
+ * connected"; a bare 429 is a 'too_many' (its Retry-After), any other refusal
+ * (a 401 or 403 of a proxy included) an 'http' error: never a refused token,
+ * which only an ERROR object (codes 1 and 2) or the validation can say.
+ */
 export function rejectKind(status, reason) {
   const text = String(reason ?? '');
   if (/request limit/i.test(text)) {
@@ -51,13 +59,20 @@ export function rejectKind(status, reason) {
   if (/already connected/i.test(text)) {
     return 'already_connected';
   }
-  if (status === 401 || status === 403) {
-    return 'unauthorized';
+  return status === 429 ? 'too_many' : 'http';
+}
+
+/** A Retry-After header (seconds or an HTTP date) -> ms, else undefined. */
+export function retryAfterOf(value, now = Date.now()) {
+  if (typeof value !== 'string' || value.length > 64) {
+    return undefined;
   }
-  if (status === 429) {
-    return 'rate_limited';
+  const text = value.trim();
+  if (/^\d{1,9}$/.test(text)) {
+    return Number(text) * 1000;
   }
-  return 'http';
+  const date = Date.parse(text);
+  return Number.isFinite(date) ? Math.max(0, date - now) : undefined;
 }
 
 /** The kind of a closed connection, from its close code. */
@@ -66,20 +81,33 @@ export const closeKind = (code) => (code === CLOSE_REQUEST_LIMIT ? 'rate_limited
 export class Channel {
   /**
    * @param {object} options
-   * @param {Function} options.factory - (url) => a `ws`-like socket.
+   * @param {Function} options.factory - (url, options) => a `ws`-like socket.
    * @param {Function} options.onMessage - (message) => void, every parsed message.
    * @param {Function} options.onClose - (ChannelError) => void, once, after the open.
    * @param {Function} [options.onIgnored] - () => void, a message not usable.
+   * @param {object} [options.timers] - setTimeout/clearTimeout (the close delay).
+   * @param {Function} [options.now] - the clock (the last pong).
    */
-  constructor({ factory = defaultSocketFactory, onMessage, onClose, onIgnored = () => {} }) {
+  constructor({
+    factory = defaultSocketFactory,
+    onMessage,
+    onClose,
+    onIgnored = () => {},
+    timers = globalThis,
+    now = Date.now,
+  }) {
     this.factory = factory;
     this.onMessage = onMessage;
     this.onClose = onClose;
     this.onIgnored = onIgnored;
+    this.timers = timers;
+    this.now = now;
     this.socket = undefined;
     this.isOpen = false;
     this.ended = false;
     this.waitingPong = false;
+    /** When the last pong came (0: none yet). */
+    this.lastPongAt = 0;
   }
 
   /** Opens the connection: resolves once open, rejects with a ChannelError. */
@@ -97,8 +125,11 @@ export class Channel {
       this.socket = socket;
       socket.on('unexpected-response', (_request, response) => {
         const status = Number(response?.statusCode) || undefined;
-        const reason = response?.headers?.['x-websocket-reject-reason'];
-        refusal = new ChannelError(rejectKind(status, reason), { status });
+        const headers = response?.headers ?? {};
+        refusal = new ChannelError(rejectKind(status, headers['x-websocket-reject-reason']), {
+          status,
+          retryAfter: retryAfterOf(headers['retry-after'], this.now()),
+        });
         try {
           response?.resume?.();
         } catch {
@@ -112,7 +143,7 @@ export class Channel {
         resolve();
       });
       socket.on('message', (data) => {
-        if (this.socket !== socket) {
+        if (this.socket !== socket || this.ended) {
           return;
         }
         const message = parseMessage(data);
@@ -124,6 +155,7 @@ export class Channel {
       });
       socket.on('pong', () => {
         this.waitingPong = false;
+        this.lastPongAt = this.now();
       });
       // An 'error' is always followed by a 'close': the close decides.
       socket.on('error', (err) => {
@@ -134,6 +166,7 @@ export class Channel {
       socket.on('close', (code) => {
         const wasOpen = this.isOpen;
         this.isOpen = false;
+        this.timers.clearTimeout(this.closeTimer);
         if (!settled) {
           settled = true;
           reject(
@@ -168,10 +201,7 @@ export class Channel {
 
   /** A ping; false when the previous one got no pong (the connection is dead). */
   ping() {
-    if (!this.isOpen) {
-      return false;
-    }
-    if (this.waitingPong) {
+    if (!this.isOpen || this.waitingPong) {
       return false;
     }
     this.waitingPong = true;
@@ -183,30 +213,46 @@ export class Channel {
     return true;
   }
 
-  /** Closes without calling onClose (a close we asked for). */
+  /**
+   * Closes without calling onClose (a close we asked for): a normal close
+   * (1000), then the socket is cut if it is not closed within 2 s.
+   */
   close() {
     this.ended = true;
     this.isOpen = false;
     const socket = this.socket;
-    if (socket) {
-      try {
-        socket.terminate();
-      } catch {
-        // already closed
-      }
+    if (!socket) {
+      return;
+    }
+    if (socket.readyState === 0) {
+      // Still connecting: there is nothing to close politely.
+      this.terminate(socket);
+      return;
+    }
+    try {
+      socket.close(1000);
+    } catch {
+      this.terminate(socket);
+      return;
+    }
+    if (socket.readyState === 3) {
+      return; // closed already
+    }
+    this.closeTimer = this.timers.setTimeout(() => this.terminate(socket), TIMINGS.closeGrace);
+    this.closeTimer?.unref?.();
+  }
+
+  terminate(socket = this.socket) {
+    try {
+      socket?.terminate();
+    } catch {
+      // already closed
     }
   }
 
   /** Cuts a dead connection: onClose is called, as for a close from the server. */
   kill() {
-    const socket = this.socket;
-    if (socket) {
-      try {
-        socket.terminate();
-      } catch {
-        // already closed
-      }
-    }
+    this.terminate();
   }
 }
 
@@ -214,9 +260,9 @@ export class Channel {
  * Validates an API token on its own short connection, as bluecurrent-api
  * does: VALIDATE_API_TOKEN, the first answer, close. Resolves with the auth
  * token; rejects with a ChannelError: 'refused' (the token is not accepted),
- * 'rate_limited', 'server_error', 'timeout', 'network', 'bad_response'.
+ * 'rate_limited', 'server_error', 'timeout', 'network', 'bad_response'...
  */
-export async function validateToken({ factory, apiToken, timers = globalThis }) {
+export async function validateToken({ factory, apiToken, timers = globalThis, now = Date.now }) {
   let answer;
   let message;
   let timer;
@@ -225,7 +271,9 @@ export async function validateToken({ factory, apiToken, timers = globalThis }) 
   });
   const channel = new Channel({
     factory,
-    onMessage: (message) => answer({ message }),
+    timers,
+    now,
+    onMessage: (m) => answer({ message: m }),
     onClose: (err) => answer({ err }),
     onIgnored: () => answer({ err: new ChannelError('bad_response') }),
   });

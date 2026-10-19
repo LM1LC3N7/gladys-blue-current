@@ -61,16 +61,30 @@ everything off" of a voice assistant or a scene cannot reach them.
 - **"Already open elsewhere"**: Blue Current may refuse a second connection
   (another Gladys, a Home Assistant with the same account). The integration
   then waits at least two minutes between tries.
-- **Refused token**: the integration stops and tries again after 6 hours,
-  then every 24 hours. Save a new token, or click **Test the connection**,
-  to try again at once.
+- **"Slow down" (HTTP 429)**: the integration waits for the time Blue
+  Current asks (between 1 minute and 6 hours, 15 minutes when it says
+  nothing), even after a restart.
+- **Refused token**: when Blue Current refuses the token, or refuses the
+  connection within 30 minutes of accepting the token, the integration stops
+  and tries again after 6 hours, then every 24 hours. Save a new token, or
+  click **Test the connection**, to try again at once.
+- **How the integration introduces itself**: the Blue Current API asks each
+  client for its kind in its first message (`HELLO`). The integration sends
+  `homeassistant`, the only value Blue Current documents (that of the library
+  it publishes for Home Assistant), and never tries another one; its own
+  name, `gladys-blue-current` and its version, goes in the User-Agent of the
+  connection.
 - **Commands**: before each one, the status of the charge point is read
-  again; the command is refused if it cannot be read, if the charge point is
-  offline, or if there is nothing to do (start while charging...). One
-  command at a time. A session is started with the default charge card of the
-  charge point, as Blue Current gives it. Gladys waits 5 seconds: if Blue
+  again; the command is refused if it cannot be read or if the charge point
+  is offline. Nothing is sent when there is nothing to do (start while
+  charging, stop without a vehicle, block a charge point already blocked):
+  Gladys then shows success. A session is started only with a vehicle plugged
+  in ("plug in the vehicle first" otherwise), with the default charge card of
+  the charge point, as Blue Current gives it. One command at a time, except
+  **Stop the session**, which never waits. Gladys waits 5 seconds: if Blue
   Current has not confirmed by then, Gladys shows "Command sent, without
-  confirmation": the command may have been carried out, the state follows.
+  confirmation" (or "sent and received, without a result from the charge
+  point"): the command may have been carried out, the state follows.
 - **Reboot**: the charge point restarts and a session in progress is cut.
 - The power is the sum, over the phases, of voltage times current (the Home
   Assistant integration shows a slightly different estimate).

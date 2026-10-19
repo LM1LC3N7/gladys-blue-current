@@ -4,13 +4,14 @@ import { ACTION_COMMANDS, LIMITS } from '../src/constants.js';
 import {
   actionAnswer,
   errorKind,
+  evseOf,
   parseMessage,
   readChargePoints,
   readStatus,
   tokenOf,
 } from '../src/protocol.js';
 import { normalizeConfig } from '../src/config.js';
-import { closeKind, rejectKind } from '../src/socket.js';
+import { closeKind, rejectKind, retryAfterOf } from '../src/socket.js';
 import { normalizeMemory } from '../src/store.js';
 
 test('messages: bounded, JSON objects with an object name, no prototype pollution', () => {
@@ -52,20 +53,16 @@ test('charge points: valid ids only, no duplicates, bounded, texts cleaned', () 
       { evse_id: 'BCU1', name: 'dup' },
       { evse_id: 'a:b' },
       { evse_id: '__proto__' },
+      { evse_id: 'constructor' },
+      { evse_id: 'prototype' },
       null,
       'x',
       { evse_id: 'BCU2', default_card: { uid: 'bad uid!' } },
     ],
   });
+  // M3: never __proto__, constructor nor prototype as a charge point id.
   assert.deepEqual(points, [
     { evseId: 'BCU1', name: 'Garage', model: 'U:MOVE22', activity: 'charging', card: 'BCU-APP' },
-    {
-      evseId: '__proto__',
-      name: undefined,
-      model: undefined,
-      activity: undefined,
-      card: undefined,
-    },
     { evseId: 'BCU2', name: undefined, model: undefined, activity: undefined, card: undefined },
   ]);
   const many = readChargePoints({
@@ -114,13 +111,25 @@ test('answers to the commands, attributed by their object and evse id', () => {
   assert.deepEqual(a({ object: 'RECEIVED_START_SESSION', evse_id: 'BCU1', error: '' }), {
     command: 'START_SESSION',
     stage: 'received',
+    outcome: 'ok',
     ok: true,
     evseId: 'BCU1',
   });
   assert.equal(a({ object: 'STATUS_STOP_SESSION', success: true, error: '' }).ok, true);
-  assert.equal(a({ object: 'STATUS_STOP_SESSION', success: false }).ok, false);
-  assert.equal(a({ object: 'STATUS_REBOOT', success: true, error: 'FAILED' }).ok, false);
+  // I4: refused only for REJECTED or success false; TIMEOUT is no refusal.
+  assert.equal(a({ object: 'STATUS_STOP_SESSION', success: false }).outcome, 'refused');
+  assert.equal(a({ object: 'STATUS_REBOOT', error: 'REJECTED' }).outcome, 'refused');
+  assert.equal(a({ object: 'STATUS_REBOOT', success: false, error: 'TIMEOUT' }).outcome, 'timeout');
+  assert.equal(a({ object: 'STATUS_REBOOT', success: true, error: 'FAILED' }).outcome, 'unknown');
   assert.equal(a({ object: 'RECEIVED_REBOOT', error: 3 }).ok, false);
+  // M2: an evse id present but malformed: attributed to nothing.
+  assert.equal(a({ object: 'STATUS_REBOOT', success: true, evse_id: 'OTHER CP' }), undefined);
+  assert.equal(a({ object: 'STATUS_REBOOT', success: true, evse_id: null }), undefined);
+  assert.equal(
+    evseOf({ object: 'CH_STATUS', evse_id: 'bad id', data: { evse_id: 'BCU1' } }),
+    undefined,
+  );
+  assert.equal(evseOf({ object: 'CH_STATUS', data: { evse_id: 'BCU1' } }), 'BCU1');
   assert.equal(a({ object: 'STATUS_API_TOKEN', success: true }), undefined);
   assert.equal(a({ object: 'CH_STATUS' }), undefined);
   assert.equal(a({ object: 'STATUS_SET_PLUG_AND_CHARGE' }), undefined);
@@ -133,8 +142,15 @@ test('errors, refusals and the validation answer', () => {
   assert.equal(errorKind({ object: 'ERROR', error: 9 }), 'server_error');
   assert.equal(rejectKind(403, 'Request limit reached'), 'rate_limited');
   assert.equal(rejectKind(403, 'Already connected'), 'already_connected');
-  assert.equal(rejectKind(401), 'unauthorized');
+  // I1: a 401/403 without a known reason is no refused token; M6: a bare 429.
+  assert.equal(rejectKind(401), 'http');
+  assert.equal(rejectKind(403), 'http');
+  assert.equal(rejectKind(429), 'too_many');
   assert.equal(rejectKind(502), 'http');
+  assert.equal(retryAfterOf('120', 0), 120_000);
+  assert.equal(retryAfterOf('Thu, 01 Jan 1970 00:01:00 GMT', 0), 60_000);
+  assert.equal(retryAfterOf('soon', 0), undefined);
+  assert.equal(retryAfterOf(undefined, 0), undefined);
   assert.equal(closeKind(4001), 'rate_limited');
   assert.equal(closeKind(1006), 'closed');
   assert.equal(tokenOf({ object: 'STATUS_API_TOKEN', success: true, token: 'abc' }), 'abc');

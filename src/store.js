@@ -2,7 +2,8 @@
 // What must survive a restart, in /data (the only writable place of the
 // container), never the API token nor the auth token:
 //   - the end of the request-limit pause (Blue Current resets it at midnight,
-//     Amsterdam time): a restart never connects again before;
+//     Amsterdam time) or of a 429 pause (its Retry-After): a restart never
+//     connects again before;
 //   - a stop after a refused token, with the token it belongs to (a hash) and
 //     its next try: a restart never sends a refused token again before.
 // Every time read back is bounded: nothing holds more than 25 h after a
@@ -62,6 +63,9 @@ export function normalizeMemory(raw, now) {
   const until = bounded(raw?.pause?.until, now);
   return {
     block,
-    pause: until !== undefined && raw.pause.kind === 'rate' ? { kind: 'rate', until } : null,
+    pause:
+      until !== undefined && (raw.pause.kind === 'rate' || raw.pause.kind === 'busy')
+        ? { kind: raw.pause.kind, until }
+        : null,
   };
 }

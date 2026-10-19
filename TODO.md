@@ -24,6 +24,9 @@ up to date at the end of every milestone.
       off), reconnection with backoff, request-limit pause and refused-token
       stop persisted and bounded, test button, docs en/fr, cover. Tested
       against a fake server only.
+- [x] **Milestone 1 fixes — review** (2026-10-19): the xhigh review of
+      8e1ad19 (B1, B2, I1–I4, M1–M13), each with its regression test; the
+      reviewer's scenarios H1–H15 and the User-Agent check are in the tests.
 - [ ] **Milestone 2 — real account**: run against a real account (see "To
       check"), turn the messages (anonymized) into fixtures.
 - [ ] **Milestone 3 — more**: choice of the charge card (GET_CHARGE_CARDS,
@@ -48,8 +51,10 @@ up to date at the end of every milestone.
 - `default_card.uid` (`BCU-APP` in the examples) as `session_token` for
   `START_SESSION`.
 - The `activity` while blocked: `unavailable` (as Home Assistant reads it).
-- The HELLO `header` value (`homeassistant`) and whether another value is
-  accepted.
+- Ask Blue Current whether `gladys` is accepted as the HELLO `header`
+  (today `homeassistant`, the only documented value). Never fall back from
+  one to the other at run time: change it only on Blue Current's answer.
+- Which error texts a `STATUS_x` carries besides `TIMEOUT` and `REJECTED`.
 
 ## Decisions
 
@@ -74,14 +79,33 @@ up to date at the end of every milestone.
 - **Request limit**: error 42, close 4001 or a handshake refusal pauses every
   path until 00:00:30 Amsterdam (bluecurrent-api, `get_next_reset_delta`),
   bounded 1 min – 25 h, kept in `/data`.
-- **Refused token**: a validation answering `success: false` or error 1/2,
-  or error 1/2 on a connection whose token was just validated, stops (kept in
-  `/data` with a hash of the token): one new try after 6 h, then every 24 h;
-  a new token or the test button tries at once. Error 1/2 later on (an auth
-  token that expired): validated again once after the backoff.
-- **Reconnection**: 5 s, 15 s, 30 s, 1, 2, 5, 10 min, jitter half to whole;
-  "Already connected" at least 2 min; ping every minute, a missing pong cuts
-  the connection; no list within 30 s cuts it too.
+- **Refused token** (review B1): a validation answering `success: false` or
+  error 1/2, or an ERROR 1/2 less than 30 min after a validation, stops (kept
+  in `/data` with a hash of the token): one new try after 6 h, then every
+  24 h; a new token or the test button tries at once. An ERROR 1/2 later on
+  (an auth token that expired): validated again once after the backoff. An
+  ERROR 2 while a command is in flight refuses that command only. A handshake
+  401/403 without a documented reason is an `http` error with the backoff,
+  never a refused token (review I1).
+- **Reconnection** (review B2): 5 s, 15 s, 30 s, 1, 2, 5, 10 min, jitter
+  half to whole; reset only by a stable connection (open 3 min, listed, a
+  pong since the open), never by the list. "Already connected" at least
+  2 min; ping every minute, a missing pong cuts the connection; no list
+  within 30 s cuts it too. Our own closes are a normal close (1000), cut
+  after 2 s.
+- **429** (review M6): a bare HTTP 429 at the handshake pauses every path
+  for its Retry-After bounded to 1 min – 6 h (15 min without), kept in
+  `/data`; "until midnight" only for the documented signals (error 42,
+  close 4001, "Request limit reached").
+- **Statuses asked** (review M4): all with the first list of a connection,
+  then only for a new charge point; a list pushed again asks nothing. The
+  same warning is logged at most once per 10 min.
+- **Display while charging** (review M7): the duration is computed again
+  every minute, without a request. A charge point no longer on the list
+  shows unreachable (M10). A Gladys reconnection shows the pause and stop
+  texts with the time left (M5).
+- **User-Agent** `gladys-blue-current/<version of package.json>`; HELLO
+  `homeassistant`, explained in the docs, never another value as a fallback.
 - **Commands are buttons and a select**, never switches (lot 6 lesson);
   start/stop/availability behind `allow_commands`, reboot behind
   `allow_reboot` (heavy: it cuts a session). Only REBOOT is offered, not
@@ -93,11 +117,23 @@ up to date at the end of every milestone.
   nothing to do without vehicle, refused when the vehicle status is missing.
   Availability: from `activity` (`unavailable` = blocked), refused when it
   says neither. Reboot: refused offline.
-- **Answers**: one command at a time; the result `STATUS_x` (with the evse id
-  when it carries one) acks success or "refused"; only `RECEIVED_x`:
-  "sent and received, without a result"; nothing, or the connection lost
-  after sending: "Command sent, without confirmation". Never the free text
-  of an answer.
+- **Fresh status** (review I3): only a `CH_STATUS` of that charge point
+  carrying the fields of the decision (`activity`, plus `vehicle_status` to
+  start or stop) is taken; a partial push meanwhile is merged for the display
+  only. **Start** (I2) is refused unless the vehicle is plugged in
+  (`vehicle_detected` or `ready`): missing, standby, no power, vehicle error
+  give "plug in the vehicle first".
+- **Answers**: one command at a time, except a stop, which never waits for
+  the queue (M9); the result `STATUS_x` acks success; "refused" only for
+  `REJECTED` or `success: false`; `TIMEOUT` (I4): "sent and received,
+  without a result from the charge point"; only `RECEIVED_x`: "sent and
+  received, without a result"; nothing, another error text, or the
+  connection lost after sending: "Command sent, without confirmation". An
+  answer whose `evse_id` is present but malformed is attributed to nothing
+  (M2); ids `__proto__`, `constructor`, `prototype` are refused (M3). After a
+  command left without a result, the first `STATUS_x` of that command on
+  that charge point within 2 min is ignored (M1): never the ack of the next
+  one. Never the free text of an answer.
 - **Power** = Σ voltage × current over the phases (W). bluecurrent-api gives
   avg current × avg voltage × √3, which undercounts a three-phase charge on
   phase-to-neutral voltages.

@@ -63,16 +63,31 @@ Les commandes sont des boutons et une liste, jamais des interrupteurs : un
 - **« Déjà ouverte ailleurs »** : Blue Current peut refuser une deuxième
   connexion (un autre Gladys, un Home Assistant sur le même compte).
   L'intégration attend alors au moins deux minutes entre deux essais.
-- **Jeton refusé** : l'intégration s'arrête et réessaie au bout de 6 heures,
-  puis toutes les 24 heures. Enregistrez un nouveau jeton, ou cliquez sur
-  **Tester la connexion**, pour réessayer tout de suite.
+- **« Ralentissez » (HTTP 429)** : l'intégration attend le temps que Blue
+  Current demande (entre 1 minute et 6 heures, 15 minutes s'il ne dit rien),
+  même après un redémarrage.
+- **Jeton refusé** : quand Blue Current refuse le jeton, ou refuse la
+  connexion moins de 30 minutes après l'avoir accepté, l'intégration s'arrête
+  et réessaie au bout de 6 heures, puis toutes les 24 heures. Enregistrez un
+  nouveau jeton, ou cliquez sur **Tester la connexion**, pour réessayer tout
+  de suite.
+- **Comment l'intégration se présente** : l'API Blue Current demande à
+  chaque client son type dans son premier message (`HELLO`). L'intégration
+  envoie `homeassistant`, la seule valeur que Blue Current documente (celle
+  de la bibliothèque qu'il publie pour Home Assistant), et n'en essaie jamais
+  d'autre ; son propre nom, `gladys-blue-current` et sa version, figure dans
+  le User-Agent de la connexion.
 - **Commandes** : avant chacune, l'état de la borne est relu ; la commande
-  est refusée s'il ne peut pas être lu, si la borne est hors ligne, ou s'il
-  n'y a rien à faire (démarrer pendant une charge…). Une commande à la fois.
-  Une session est démarrée avec la carte de recharge par défaut de la borne,
-  telle que Blue Current la donne. Gladys attend 5 secondes : si Blue Current
-  n'a pas confirmé d'ici là, Gladys affiche « Commande envoyée, sans
-  confirmation » : la commande a pu être exécutée, l'état suivra.
+  est refusée s'il ne peut pas être lu ou si la borne est hors ligne. Rien
+  n'est envoyé s'il n'y a rien à faire (démarrer pendant une charge, arrêter
+  sans véhicule, bloquer une borne déjà bloquée) : Gladys affiche alors un
+  succès. Une session n'est démarrée qu'avec un véhicule branché (sinon
+  « branchez d'abord le véhicule »), avec la carte de recharge par défaut de
+  la borne, telle que Blue Current la donne. Une commande à la fois, sauf
+  **Arrêter la session**, qui n'attend jamais. Gladys attend 5 secondes : si
+  Blue Current n'a pas confirmé d'ici là, Gladys affiche « Commande envoyée,
+  sans confirmation » (ou « envoyée et reçue, sans résultat de la borne ») :
+  la commande a pu être exécutée, l'état suivra.
 - **Redémarrage** : la borne redémarre et une session en cours est coupée.
 - La puissance est la somme, sur les phases, de la tension par le courant
   (l'intégration Home Assistant affiche une estimation un peu différente).

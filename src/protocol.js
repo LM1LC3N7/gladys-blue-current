@@ -58,7 +58,8 @@ export function parseMessage(data) {
 /** A charge point id: what Blue Current names an EVSE id (BCU100186), safe in an external id. */
 export const EVSE_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
-export const validEvse = (value) => typeof value === 'string' && EVSE_ID.test(value);
+export const validEvse = (value) =>
+  typeof value === 'string' && EVSE_ID.test(value) && !FORBIDDEN_KEYS.has(value);
 
 /** A short text from an answer: control characters removed, bounded; undefined when empty. */
 export function shortText(value, max = LIMITS.textLength) {
@@ -120,12 +121,16 @@ export function readChargePoints(message) {
   return points;
 }
 
-/** The evse id a message is about (top level, else in its data). */
+/**
+ * The evse id a message is about (top level, else in its data); undefined
+ * when absent, or when present but malformed (never the other one then).
+ */
 export function evseOf(message) {
-  if (validEvse(message?.evse_id)) {
-    return message.evse_id;
+  if (isObject(message) && Object.hasOwn(message, 'evse_id')) {
+    return validEvse(message.evse_id) ? message.evse_id : undefined;
   }
-  return validEvse(message?.data?.evse_id) ? message.data.evse_id : undefined;
+  const data = message?.data;
+  return isObject(data) && validEvse(data.evse_id) ? data.evse_id : undefined;
 }
 
 const own = (object, key) => isObject(object) && Object.hasOwn(object, key);
@@ -176,11 +181,22 @@ export const errorCode = (message) =>
     ? message.error
     : '?';
 
+/** The text of an `error` field, upper case, '' when there is none. */
+function errorText(error) {
+  if (error === undefined || error === null || error === '') {
+    return '';
+  }
+  return typeof error === 'string' ? error.trim().toUpperCase().slice(0, 64) : 'ERROR';
+}
+
 /**
- * The answer to an action command: `{ command, stage, ok }`, else undefined.
+ * The answer to an action command: `{ command, stage, outcome, ok, evseId }`,
+ * else undefined (another object, or an `evse_id` present but malformed).
  * `stage`: 'received' (RECEIVED_x: Blue Current got it) or 'result'
- * (STATUS_x: the charge point answered). `ok`: no error and, for a result,
- * `success` not false.
+ * (STATUS_x: the charge point answered). `outcome`: 'ok'; 'timeout' (the
+ * charge point did not answer Blue Current in time: the command may still be
+ * carried out); 'refused' (REJECTED, or `success` false); 'unknown' (another
+ * error text, never shown).
  */
 export function actionAnswer(message, commands) {
   const name = message?.object;
@@ -201,14 +217,27 @@ export function actionAnswer(message, commands) {
   if (!commands.includes(command)) {
     return undefined;
   }
-  const failed =
-    (typeof message.error === 'string' && message.error.trim() !== '') ||
-    (message.error !== undefined &&
-      message.error !== null &&
-      message.error !== '' &&
-      typeof message.error !== 'string') ||
-    message.success === false;
-  return { command, stage, ok: !failed, evseId: evseOf(message) };
+  if (Object.hasOwn(message, 'evse_id') && !validEvse(message.evse_id)) {
+    return undefined; // attributed to no charge point, so to no command
+  }
+  const text = errorText(message.error);
+  let outcome;
+  if (text.includes('TIMEOUT')) {
+    outcome = 'timeout';
+  } else if (text.includes('REJECTED') || message.success === false) {
+    outcome = 'refused';
+  } else if (text !== '') {
+    outcome = 'unknown';
+  } else {
+    outcome = 'ok';
+  }
+  return {
+    command,
+    stage,
+    outcome,
+    ok: outcome === 'ok',
+    evseId: validEvse(message.evse_id) ? message.evse_id : undefined,
+  };
 }
 
 /** Whether a message is the answer to the token validation. */

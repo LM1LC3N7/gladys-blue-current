@@ -93,6 +93,11 @@ export const T = {
       `The daily request limit of Blue Current is reached: it is reset at midnight (Amsterdam time). Connecting again in ${wait.en}.`,
       `La limite quotidienne de requêtes de Blue Current est atteinte : elle repart à minuit (heure d'Amsterdam). Nouvelle connexion dans ${wait.fr}.`,
     ),
+  tooMany: (wait) =>
+    both(
+      `Blue Current asks to slow down (HTTP 429). Connecting again in ${wait.en}.`,
+      `Blue Current demande de ralentir (HTTP 429). Nouvelle connexion dans ${wait.fr}.`,
+    ),
   alreadyConnected: (wait) =>
     both(
       `Blue Current says this connection is already open elsewhere (another Gladys, a Home Assistant?). New try in ${wait.en}.`,
@@ -162,6 +167,10 @@ export const ERRORS = {
     'The charge point is blocked: make it available first. The command was not sent.',
     "La borne est bloquée : rendez-la d'abord disponible. La commande n'a pas été envoyée.",
   ),
+  noVehicle: both(
+    'No vehicle ready on the charge point: plug in the vehicle first. The command was not sent.',
+    "Aucun véhicule prêt sur la borne : branchez d'abord le véhicule. La commande n'a pas été envoyée.",
+  ),
   noCard: both(
     'Blue Current gives no default charge card for this charge point: the session cannot be started from Gladys.',
     'Blue Current ne donne aucune carte de recharge par défaut pour cette borne : la session ne peut pas être démarrée depuis Gladys.',
@@ -170,6 +179,10 @@ export const ERRORS = {
   receivedNoResult: both(
     'Command sent and received by Blue Current, without a result from the charge point yet: the state will follow.',
     "Commande envoyée et reçue par Blue Current, sans résultat de la borne pour l'instant : l'état suivra.",
+  ),
+  timedOut: both(
+    'Command sent and received, without a result from the charge point: the state will follow.',
+    "Commande envoyée et reçue, sans résultat de la borne : l'état suivra.",
   ),
   sentNoConfirmation: both(
     'Command sent, without confirmation from Blue Current: the state will follow.',

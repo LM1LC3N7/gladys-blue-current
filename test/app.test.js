@@ -32,6 +32,8 @@ const HOUR = 60 * MINUTE;
 const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
 const CONFIG = { api_token: API_TOKEN };
 const COMMANDS_ON = { api_token: API_TOKEN, allow_commands: true };
+/** A vehicle plugged in (state B): a session can be started. */
+const READY = status({ vehicle_status: 'B' });
 const DEVICE = `ext:test-integration:chargepoint:${EVSE}`;
 const feature = (role) => `${DEVICE}:${role}`;
 
@@ -261,9 +263,11 @@ test('the test button tries a refused token again at once, once per 30 s', async
   assert.equal(server.validations, 2);
 });
 
-test('an auth token refused later is validated again once, never in a loop', async (t) => {
-  const { gladys, server, advance } = await setup(t);
+test('an auth token refused 30 min after its validation is validated again once, then a stop', async (t) => {
+  const store = memoryStore();
+  const { gladys, server, advance } = await setup(t, { store });
   assert.equal(server.validations, 1);
+  await advance(31 * MINUTE, 10_000);
   server.push({ object: 'ERROR', error: 1, message: 'Invalid Auth Token' });
   await advance(2_000);
   assert.equal(server.open.length, 0, 'the connection is closed');
@@ -271,6 +275,126 @@ test('an auth token refused later is validated again once, never in a loop', asy
   await advance(TIMINGS.backoff[0]);
   assert.equal(server.validations, 2, 'validated again after the backoff');
   assert.equal(gladys.fake.connectionStatus.connected, true);
+  // Refused again within 30 minutes of that validation: the token is refused.
+  await advance(10 * MINUTE, 10_000);
+  server.push({ object: 'ERROR', error: 2, message: 'Not authorized' });
+  await advance(2_000);
+  assert.match(message(gladys).en, /refused the API token/);
+  assert.equal(store.data.block.kind, 'refused');
+  await advance(5 * HOUR, 10 * MINUTE);
+  assert.equal(server.validations, 2);
+});
+
+test('B1 (H1): ERROR 2 answering every status: one validation, a stop, no loop', async (t) => {
+  const server = fakeBlueCurrent();
+  const answer = server.answer.bind(server);
+  server.answer = (m, socket) =>
+    m.command === 'GET_CH_STATUS' && m.Authorization === `Token ${AUTH}`
+      ? [{ object: 'ERROR', error: 2, message: 'Not authorized' }]
+      : answer(m, socket);
+  const store = memoryStore();
+  const { advance } = await setup(t, { server, store });
+  await advance(10 * MINUTE, 500);
+  assert.equal(server.validations, 1);
+  assert.equal(store.data.block.kind, 'refused');
+  await advance(5 * HOUR, 10 * MINUTE);
+  assert.equal(server.validations, 1, 'nothing before 6 h');
+  await advance(HOUR + MINUTE, MINUTE);
+  assert.equal(server.validations, 2, 'one new try at 6 h');
+  await advance(23 * HOUR, 30 * MINUTE);
+  assert.equal(server.validations, 2, 'then 24 h');
+});
+
+test('B2 (H2): a server closing every connection after the statuses: connections bounded', async (t) => {
+  const server = fakeBlueCurrent();
+  const answer = server.answer.bind(server);
+  server.answer = (m, socket) => {
+    const out = answer(m, socket);
+    if (m.command === 'GET_CH_STATUS') {
+      setImmediate(() => setImmediate(() => socket.drop(1000)));
+    }
+    return out;
+  };
+  const { advance } = await setup(t, { server });
+  await advance(10 * MINUTE, 500);
+  // 5 s, 15 s, 30 s, 1, 2, 5 min...: the list never resets the backoff.
+  assert.ok(server.sockets.length <= 10, `${server.sockets.length} sockets in 10 min`);
+  assert.equal(server.validations, 1);
+});
+
+test('B2: only a stable connection (3 min, a pong) resets the backoff', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  server.main.drop(1006);
+  await advance(TIMINGS.backoff[0] + 1_000);
+  server.main.drop(1006); // attempt 2: 15 s
+  await advance(TIMINGS.backoff[0] + 1_000);
+  assert.equal(gladys.fake.connectionStatus.connected, false, 'not after 5 s');
+  await advance(TIMINGS.backoff[1]);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  await advance(4 * MINUTE, 10_000); // stable now
+  server.main.drop(1006);
+  await advance(TIMINGS.backoff[0] + 1_000);
+  assert.equal(gladys.fake.connectionStatus.connected, true, 'back to 5 s');
+});
+
+test('B1 (H11): ERROR 2 answering a command refuses the command, not the token', async (t) => {
+  const server = fakeBlueCurrent();
+  server.statuses[EVSE] = status({ vehicle_status: 'B' });
+  const { gladys, advance, store } = await setup(t, { config: COMMANDS_ON, server });
+  server.commandAnswers.START_SESSION = [{ object: 'ERROR', error: 2, message: 'Not authorized' }];
+  const pending = press(gladys, FEATURES.START);
+  await advance(5_000, 100);
+  const ack = await pending;
+  assert.match(errorOf(ack), /Blue Current a refusé la commande/);
+  await advance(10_000, 500);
+  assert.equal(server.validations, 1);
+  assert.equal(server.open.length, 1, 'the connection stays');
+  assert.equal(store.data?.block ?? null, null);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+for (const code of [401, 403]) {
+  test(`I1 (H3): a handshake ${code} without a known reason is a backoff, never a refused token`, async (t) => {
+    const server = fakeBlueCurrent();
+    const factory = server.factory;
+    let n = 0;
+    server.factory = (url, options) => {
+      n += 1;
+      if (n === 2) {
+        server.refusals.push({ status: code });
+      }
+      return factory(url, options);
+    };
+    const store = memoryStore();
+    const { gladys, advance } = await setup(t, { server, store });
+    assert.equal(store.data?.block ?? null, null);
+    assert.match(message(gladys).en, /cannot be reached/);
+    await advance(TIMINGS.backoff[0] + 1_000);
+    assert.equal(gladys.fake.connectionStatus.connected, true);
+  });
+}
+
+test('M6 (H10): a bare 429 pauses for its Retry-After (1 min .. 6 h), never until midnight', async (t) => {
+  const store = memoryStore();
+  const { server, advance, gladys } = await setup(t, { store });
+  server.refusals.push({ status: 429, headers: { 'retry-after': '120' } });
+  server.main.drop(1006);
+  await advance(TIMINGS.backoff[0] + 1_000);
+  assert.equal(store.data.pause.kind, 'busy');
+  assert.ok(store.data.pause.until - Date.now() <= 2 * MINUTE);
+  assert.match(message(gladys).en, /HTTP 429/);
+  const ack = await gladys.fake.action(ACTIONS.TEST_CONNECTION);
+  assert.match(ack.data.message.en, /HTTP 429/, 'the button waits too');
+  await advance(2 * MINUTE + 1_000);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  // Without Retry-After: 15 minutes; a huge one: 6 h at most.
+  server.refusals.push({ status: 429 }, { status: 429, headers: { 'retry-after': '999999' } });
+  server.main.drop(1006);
+  await advance(TIMINGS.backoff[1] + 1_000);
+  assert.ok(Math.abs(store.data.pause.until - Date.now() - 15 * MINUTE) < 2 * MINUTE);
+  await advance(16 * MINUTE, 10_000);
+  assert.ok(store.data.pause.until - Date.now() <= 6 * HOUR);
+  assert.ok(store.data.pause.until - Date.now() > 5 * HOUR);
 });
 
 test('a token accepted then refused on the connection itself: a stop, not a loop', async (t) => {
@@ -329,6 +453,7 @@ test('a lost connection comes back with a backoff, never at once; "Already conne
   await advance(TIMINGS.backoff[0] + TIMINGS.backoff[1] + TIMINGS.backoff[2] + TIMINGS.backoff[3]);
   assert.equal(gladys.fake.connectionStatus.connected, true);
   assert.equal(server.validations, 1, 'the auth token is kept across reconnections');
+  await advance(4 * MINUTE, 10_000); // stable: the backoff starts again at 5 s
 
   server.refusals.push({ status: 403, reason: 'Already connected' });
   server.main.drop(1006);
@@ -413,6 +538,7 @@ test('commands are off by default: refused, nothing sent', async (t) => {
 
 test('start: the status read again, then START_SESSION with the default card; acked on its result', async (t) => {
   const { gladys, server } = await setup(t, { config: COMMANDS_ON });
+  server.statuses[EVSE] = READY;
   const ack = await press(gladys, FEATURES.START);
   assert.equal(ack.success, true, errorOf(ack));
   const tail = server.main.sent.slice(-2);
@@ -452,8 +578,8 @@ test('decided on the status read again, never on the memory', async (t) => {
   let ack = await press(gladys, FEATURES.START);
   assert.match(errorOf(ack), /hors ligne/);
   assert.equal(server.commands('START_SESSION').length, 0);
-  // A status without activity: refused.
-  server.statuses[EVSE] = { actual_kwh: 1 };
+  // An activity that cannot be read: refused.
+  server.statuses[EVSE] = { activity: 'dancing', vehicle_status: 'B' };
   ack = await press(gladys, FEATURES.START);
   assert.match(errorOf(ack), /pas pu être lu/);
   // No answer to the status: refused, not sent.
@@ -496,6 +622,7 @@ test('reboot needs its own option', async (t) => {
 
 test('a refused result is said refused; no answer at all is "sent, without confirmation"', async (t) => {
   const server = fakeBlueCurrent();
+  server.statuses[EVSE] = READY;
   const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
   server.commandAnswers.START_SESSION = [
     { object: 'RECEIVED_START_SESSION', evse_id: EVSE, error: '' },
@@ -547,27 +674,32 @@ test('the option turned off during the read: refused, not sent', async (t) => {
   await settle();
   await app.configUpdated(CONFIG);
   server.silentStatus = false;
-  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: status() });
+  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: READY });
   await advance(1_000, 100);
   const ack = await pending;
   assert.match(errorOf(ack), /Autoriser les commandes/);
   assert.equal(server.commands('START_SESSION').length, 0);
 });
 
-test('one command at a time', async (t) => {
+test('one command at a time, but a stop never waits for the queue (M9)', async (t) => {
   const server = fakeBlueCurrent();
+  server.statuses[EVSE] = READY;
   const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
   server.silentCommands.add('START_SESSION');
   const first = press(gladys, FEATURES.START);
   await settle();
-  const second = await press(gladys, FEATURES.STOP);
+  const second = await press(gladys, FEATURES.AVAILABILITY, 'blocked');
   assert.match(errorOf(second), /Une autre commande est en cours/);
+  const stop = await press(gladys, FEATURES.STOP);
+  assert.equal(stop.success, true, errorOf(stop));
+  assert.equal(server.commands('STOP_SESSION').length, 1, 'the stop went during the start');
   await advance(5_000, 100);
   await first;
 });
 
 test('not connected or no default card: refused, nothing sent', async (t) => {
   const server = fakeBlueCurrent({ points: [chargePoint(EVSE, { default_card: null })] });
+  server.statuses[EVSE] = READY;
   const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
   let ack = await press(gladys, FEATURES.START);
   assert.match(errorOf(ack), /carte de recharge/);
@@ -577,4 +709,161 @@ test('not connected or no default card: refused, nothing sent', async (t) => {
   await advance(1_000, 100);
   ack = await press(gladys, FEATURES.STOP);
   assert.match(errorOf(ack), /Non connecté/);
+});
+
+test('I2 (H4): no session started without a vehicle ready', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
+  for (const letter of ['A', 'E', 'F', 'Z']) {
+    server.statuses[EVSE] = status({ vehicle_status: letter });
+    const ack = await press(gladys, FEATURES.START);
+    assert.match(errorOf(ack), /branchez d'abord le véhicule/, letter);
+  }
+  // A status without the vehicle at all: not the answer awaited, refused unsent.
+  server.statuses[EVSE] = { activity: 'available' };
+  const pending = press(gladys, FEATURES.START);
+  await advance(5_000, 100);
+  assert.match(errorOf(await pending), /pas pu être lu/);
+  assert.equal(server.commands('START_SESSION').length, 0);
+});
+
+test('I3 (H12): a partial push before the answer is never the status decided on', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
+  server.silentStatus = true;
+  const pending = press(gladys, FEATURES.STOP);
+  await settle();
+  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: { activity: 'charging' } });
+  await advance(5_000, 100);
+  const ack = await pending;
+  assert.match(errorOf(ack), /pas pu être lu/);
+  assert.equal(server.commands('STOP_SESSION').length, 0);
+  assert.equal(last(gladys, FEATURES.ACTIVITY), 'En charge', 'the push is still shown');
+});
+
+test('I4 (H5): TIMEOUT is "sent and received, without a result"; REJECTED is refused', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys } = await setup(t, { config: { ...COMMANDS_ON, allow_reboot: true }, server });
+  server.commandAnswers.REBOOT = [
+    { object: 'RECEIVED_REBOOT', evse_id: EVSE, error: '' },
+    { object: 'STATUS_REBOOT', success: false, evse_id: EVSE, error: 'TIMEOUT' },
+  ];
+  let ack = await press(gladys, FEATURES.REBOOT);
+  assert.ok(errorOf(ack).includes(ERRORS.timedOut.fr), errorOf(ack));
+  assert.doesNotMatch(errorOf(ack), /refusé/);
+  server.commandAnswers.REBOOT = [
+    { object: 'STATUS_REBOOT', success: true, evse_id: EVSE, error: 'REJECTED' },
+  ];
+  ack = await press(gladys, FEATURES.REBOOT);
+  assert.match(errorOf(ack), /Blue Current a refusé la commande/);
+});
+
+test('M1 (H6): the late result of a command never acks the next one', async (t) => {
+  const server = fakeBlueCurrent();
+  server.statuses[EVSE] = READY;
+  const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
+  server.silentCommands.add('START_SESSION');
+  let pending = press(gladys, FEATURES.START);
+  await advance(5_000, 100);
+  await pending;
+  await advance(TIMINGS.refreshAfterCommand + 1_000);
+  pending = press(gladys, FEATURES.START);
+  await settle();
+  server.push({ object: 'STATUS_START_SESSION', success: true, evse_id: EVSE, error: '' });
+  await advance(5_000, 100);
+  const second = await pending;
+  assert.equal(second.success, false);
+  assert.ok(errorOf(second).includes(ERRORS.sentNoConfirmation.fr), errorOf(second));
+});
+
+test('M2 (H13): an answer with a malformed evse id is attributed to no command', async (t) => {
+  const server = fakeBlueCurrent();
+  server.statuses[EVSE] = READY;
+  const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
+  server.commandAnswers.START_SESSION = [
+    { object: 'STATUS_START_SESSION', success: true, evse_id: 'OTHER CP', error: '' },
+  ];
+  const pending = press(gladys, FEATURES.START);
+  await advance(5_000, 100);
+  const ack = await pending;
+  assert.ok(errorOf(ack).includes(ERRORS.sentNoConfirmation.fr), errorOf(ack));
+});
+
+test('M3/M4 (H7, H8): hostile ids ignored; a list pushed again asks nothing; errors logged once', async (t) => {
+  const logs = [];
+  const { gladys, server, advance } = await setup(t, { logs });
+  const before = server.commands('GET_CH_STATUS').length;
+  for (let i = 0; i < 100; i += 1) {
+    server.push({ object: 'CHARGE_POINTS', data: server.points });
+    server.push({ object: 'ERROR', error: 9, message: 'boom' });
+  }
+  server.push(
+    '{"object":"CHARGE_POINTS","data":[{"evse_id":"__proto__"},{"evse_id":"constructor"},{"evse_id":"BCU100186","name":"Garage"},{"evse_id":"BCU2"}]}',
+  );
+  await advance(2_000);
+  assert.deepEqual(
+    server
+      .commands('GET_CH_STATUS')
+      .slice(before)
+      .map((m) => m.evse_id),
+    ['BCU2'],
+    'only the new charge point',
+  );
+  assert.deepEqual(
+    gladys.fake.discoveredDevices.map((d) => d.external_id.split(':').at(-1)),
+    [EVSE, 'BCU2'],
+  );
+  assert.equal(logs.filter((l) => l.includes('error 9')).length, 1);
+});
+
+test('M5 (H9): a Gladys reconnection shows the time left of a pause, not the old text', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  server.push({ object: 'ERROR', error: 42, message: 'Request limit reached' });
+  await advance(2_000);
+  assert.match(message(gladys).en, /in 10 h/);
+  await advance(5 * HOUR, 10 * MINUTE);
+  await gladys.connect();
+  await settle();
+  assert.match(message(gladys).en, /in 5 h/);
+});
+
+test('M7 (H15): while charging, the duration moves without any message', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: charging() });
+  await advance(2_000);
+  const first = last(gladys, FEATURES.SESSION_DURATION);
+  const requests = server.received.length;
+  await advance(30 * MINUTE, MINUTE);
+  assert.ok(last(gladys, FEATURES.SESSION_DURATION) >= first + 29, 'computed again each minute');
+  assert.equal(server.received.length, requests, 'no request for it');
+});
+
+test('M10: a charge point no longer listed shows unreachable', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  assert.equal(gladys.fake.transports.at(-1).transport, DEVICE_TRANSPORTS.CLOUD);
+  server.push({ object: 'CHARGE_POINTS', data: [chargePoint('BCU2')] });
+  await advance(2_000);
+  const entry = gladys.fake.transports.filter((e) => e.device_external_id === DEVICE).at(-1);
+  assert.equal(entry.transport, DEVICE_TRANSPORTS.UNREACHABLE);
+});
+
+test('H14: no secret in logs, /data or Gladys across the error paths', async (t) => {
+  const logs = [];
+  const store = memoryStore();
+  const server = fakeBlueCurrent();
+  const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server, logs, store });
+  server.push({ object: 'ERROR', error: 1, message: `Invalid Auth Token ${AUTH}` });
+  await advance(10_000, 500);
+  server.push({ object: 'ERROR', error: 9, message: `boom ${API_TOKEN}` });
+  server.push({ object: 'STATUS_START_SESSION', success: false, error: API_TOKEN });
+  await press(gladys, FEATURES.START);
+  await advance(5_000, 100);
+  const everything = JSON.stringify([
+    logs,
+    store.data,
+    gladys.fake.requests,
+    gladys.fake.wsMessages,
+  ]);
+  assert.ok(!everything.includes(API_TOKEN));
+  assert.ok(!everything.includes(AUTH));
 });

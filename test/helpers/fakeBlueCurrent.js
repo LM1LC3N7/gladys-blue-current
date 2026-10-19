@@ -177,7 +177,10 @@ export function fakeBlueCurrent({ points = [chargePoint()], statuses } = {}) {
         if (refusal) {
           const response = new EventEmitter();
           response.statusCode = refusal.status;
-          response.headers = refusal.reason ? { 'x-websocket-reject-reason': refusal.reason } : {};
+          response.headers = {
+            ...(refusal.reason ? { 'x-websocket-reject-reason': refusal.reason } : {}),
+            ...refusal.headers,
+          };
           response.resume = () => {};
           socket.emit('unexpected-response', {}, response);
           return;

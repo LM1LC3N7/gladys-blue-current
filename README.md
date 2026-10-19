@@ -29,12 +29,17 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BlueCurrentApp)
   Current then pushes the statuses; nothing is polled (a status is asked
   again only after an hour of silence, and a few seconds after a command).
 - **Connection**: a ping every minute, no pong: cut and reopened. Reconnection
-  with a backoff (5 s to 10 min, jitter); "Already connected": 2 minutes at
-  least; the request limit (error 42, close 4001, handshake refusal): a pause
-  until 00:00:30 in Amsterdam, kept in `/data`. A refused API token stops,
-  kept in `/data` with a hash of the token: one new try after 6 h, then every
-  24 h, or at once with a new token or the test button. An auth token refused
-  later is validated again once, never in a loop.
+  with a backoff (5 s to 10 min, jitter), reset only by a stable connection
+  (open 3 min with a pong), never by the list; "Already connected": 2 minutes
+  at least; the request limit (error 42, close 4001, "Request limit reached"):
+  a pause until 00:00:30 in Amsterdam; a bare HTTP 429: its Retry-After
+  (1 min – 6 h); both kept in `/data`. A refused API token (or an ERROR 1/2
+  within 30 min of a validation) stops, kept in `/data` with a hash of the
+  token: one new try after 6 h, then every 24 h, or at once with a new token
+  or the test button. A handshake 401/403 without a documented reason is a
+  plain backoff, never a refused token. The HELLO says `homeassistant` (the
+  only documented value, explained in the docs); the User-Agent says
+  `gladys-blue-current/<version>`.
 - **Messages**: 256 KB at most (`maxPayload`, no compression), JSON parsed
   without `__proto__`/`constructor`/`prototype` keys, charge points kept in a
   `Map`, ids checked. Answers are attributed to their request by their
@@ -42,7 +47,9 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BlueCurrentApp)
 - **Commands**: `button`/`push` and one `text`/`select`, never a switch.
   `allow_commands` (start, stop, block) and `allow_reboot` are off by
   default. Each command: the option, a fresh `GET_CH_STATUS` (decided on that
-  answer only, never on the memory), the option checked again just before
+  answer only, which must carry the fields of the decision, never on the
+  memory; a start needs a vehicle plugged in; nothing is sent when there is
+  nothing to do; a stop never waits for another command), the option checked again just before
   sending, sent within 3.5 s of the click or refused unsent, Gladys answered
   within 4.3 s whatever the publication of states; a command that may have
   left is never said "not sent": "Command sent, without confirmation".

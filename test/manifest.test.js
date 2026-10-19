@@ -59,7 +59,15 @@ test('the store basics, and the version set by hand to 0.1.0 everywhere', () => 
       /never[\s>]+tested[\s>]+with[\s>]+a[\s>]+real[\s>]+account|jamais[\s>]+testée?[\s>]+avec[\s>]+un[\s>]+vrai[\s>]+compte/i,
     );
     assert.match(docs, /my\.bluecurrent\.nl/, 'how to create the token');
+    // M11 and M13: nothing sent when there is nothing to do; the HELLO identity explained.
+    assert.match(
+      docs,
+      /Nothing is sent when there is nothing to do|Rien\s+n'est envoyé s'il n'y a rien à faire/,
+    );
+    assert.match(docs, /`homeassistant`/);
+    assert.match(docs, /User-Agent/);
   }
+  assert.match(read('TODO.md'), /Ask Blue Current whether `gladys` is accepted/);
   for (const file of [
     'docs/en.md',
     'docs/fr.md',
