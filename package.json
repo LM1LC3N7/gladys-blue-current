@@ -21,8 +21,8 @@
     "url": "git+https://github.com/LM1LC3N7/gladys-blue-current.git"
   },
   "dependencies": {
-    "@gladysassistant/integration-sdk": "^0.15.0",
-    "ws": "^8.18.3"
+    "@gladysassistant/integration-sdk": "^0.16.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
