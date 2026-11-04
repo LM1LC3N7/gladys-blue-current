@@ -517,10 +517,10 @@ test('a device published again keeps every feature of the created device', async
 
 // --- Commands --------------------------------------------------------------------
 
-test('commands are off by default: refused, nothing sent', async (t) => {
+test('commands are off by default: refused, nothing sent (except a stop)', async (t) => {
   const { gladys, server } = await setup(t);
   const sent = server.received.length;
-  for (const role of [FEATURES.START, FEATURES.STOP, FEATURES.REBOOT]) {
+  for (const role of [FEATURES.START, FEATURES.REBOOT]) {
     const ack = await press(gladys, role);
     assert.equal(ack.success, false);
   }
@@ -534,6 +534,77 @@ test('commands are off by default: refused, nothing sent', async (t) => {
     1,
   );
   assert.match(errorOf(reading), /lecture seule/);
+});
+
+test('a stop goes with "Allow the commands" off, by default and when turned off during the read', async (t) => {
+  const server = fakeBlueCurrent();
+  server.statuses[EVSE] = charging();
+  const { gladys, app, advance } = await setup(t, { server });
+  let ack = await press(gladys, FEATURES.STOP);
+  assert.equal(ack.success, true, errorOf(ack));
+  assert.equal(server.commands('STOP_SESSION').length, 1);
+
+  await app.configUpdated(COMMANDS_ON);
+  server.silentStatus = true;
+  const pending = press(gladys, FEATURES.STOP);
+  await settle();
+  await app.configUpdated(CONFIG);
+  server.silentStatus = false;
+  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: charging() });
+  await advance(1_000, 100);
+  ack = await pending;
+  assert.equal(ack.success, true, errorOf(ack));
+  assert.equal(server.commands('STOP_SESSION').length, 2);
+});
+
+test('start and unblock stay refused without "Allow the commands", nothing sent', async (t) => {
+  const server = fakeBlueCurrent();
+  server.statuses[EVSE] = READY;
+  const { gladys } = await setup(t, { server });
+  const sent = server.received.length;
+  let ack = await press(gladys, FEATURES.START);
+  assert.match(errorOf(ack), /Autoriser les commandes/);
+  server.statuses[EVSE] = status({ activity: 'unavailable' });
+  ack = await press(gladys, FEATURES.AVAILABILITY, 'operative');
+  assert.match(errorOf(ack), /Autoriser les commandes/);
+  assert.equal(server.received.length, sent);
+  assert.equal(server.commands('START_SESSION').length, 0);
+  assert.equal(server.commands('SET_OPERATIVE').length, 0);
+});
+
+test('in doubt, the stop goes: no fresh status, no vehicle status, an unreadable activity', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys, advance } = await setup(t, { server });
+  // No answer to the status at all: sent anyway, within the time Gladys waits.
+  server.silentStatus = true;
+  let pending = press(gladys, FEATURES.STOP);
+  await advance(5_000, 100);
+  let ack = await pending;
+  assert.equal(ack.success, true, errorOf(ack));
+  assert.equal(server.commands('STOP_SESSION').length, 1);
+  server.silentStatus = false;
+  // A status without the vehicle: not the answer awaited, sent anyway.
+  server.statuses[EVSE] = { activity: 'available' };
+  pending = press(gladys, FEATURES.STOP);
+  await advance(5_000, 100);
+  ack = await pending;
+  assert.equal(ack.success, true, errorOf(ack));
+  assert.equal(server.commands('STOP_SESSION').length, 2);
+  // A vehicle status present but unusable, then an activity that cannot be read.
+  for (const data of [
+    status({ vehicle_status: 'Z' }),
+    { activity: 'dancing', vehicle_status: 'A' },
+  ]) {
+    server.statuses[EVSE] = data;
+    ack = await press(gladys, FEATURES.STOP);
+    assert.equal(ack.success, true, errorOf(ack));
+  }
+  assert.equal(server.commands('STOP_SESSION').length, 4);
+  // Offline: refused (Blue Current cannot reach it), and said so.
+  server.statuses[EVSE] = status({ activity: 'offline' });
+  ack = await press(gladys, FEATURES.STOP);
+  assert.match(errorOf(ack), /hors ligne/);
+  assert.equal(server.commands('STOP_SESSION').length, 4);
 });
 
 test('start: the status read again, then START_SESSION with the default card; acked on its result', async (t) => {
@@ -731,13 +802,14 @@ test('I3 (H12): a partial push before the answer is never the status decided on'
   const server = fakeBlueCurrent();
   const { gladys, advance } = await setup(t, { config: COMMANDS_ON, server });
   server.silentStatus = true;
-  const pending = press(gladys, FEATURES.STOP);
+  // A start (a stop goes in doubt): the push would say "nothing to do".
+  const pending = press(gladys, FEATURES.START);
   await settle();
   server.push({ object: 'CH_STATUS', evse_id: EVSE, data: { activity: 'charging' } });
   await advance(5_000, 100);
   const ack = await pending;
   assert.match(errorOf(ack), /pas pu être lu/);
-  assert.equal(server.commands('STOP_SESSION').length, 0);
+  assert.equal(server.commands('START_SESSION').length, 0);
   assert.equal(last(gladys, FEATURES.ACTIVITY), 'En charge', 'the push is still shown');
 });
 

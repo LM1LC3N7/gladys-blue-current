@@ -46,9 +46,9 @@ everything off" of a voice assistant or a scene cannot reach them.
    again, and sent only to Blue Current.
 2. The status says how many charge points Blue Current lists. Open the
    **Discovery** tab and add them.
-3. To use the commands, turn on **Allow the commands** (start, stop, block,
+3. To use the commands, turn on **Allow the commands** (start, block,
    unblock) and, separately, **Allow rebooting the charge point**. Both are
-   off by default.
+   off by default. **Stop the session** always works, even with both off.
 
 ## Good to know
 
@@ -76,7 +76,10 @@ everything off" of a voice assistant or a scene cannot reach them.
   connection.
 - **Commands**: before each one, the status of the charge point is read
   again; the command is refused if it cannot be read or if the charge point
-  is offline. Nothing is sent when there is nothing to do (start while
+  is offline. **Stop the session** is the exception: in doubt (status not
+  read in time, vehicle unknown), it is sent anyway, a stop to a charge point
+  that is not charging does nothing; it is refused only offline or during a
+  request-limit pause. Nothing is sent when there is nothing to do (start while
   charging, stop without a vehicle, block a charge point already blocked):
   Gladys then shows success. A session is started only with a vehicle plugged
   in ("plug in the vehicle first" otherwise), with the default charge card of

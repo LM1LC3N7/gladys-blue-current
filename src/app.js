@@ -48,10 +48,12 @@ import { StatePublisher } from './publisher.js';
 import { fileStore, normalizeMemory } from './store.js';
 import { nextReset } from './time.js';
 
-/** The option that allows each command. */
+/**
+ * The option that allows each command. A stop has none: it is never blocked
+ * (the sensitive commands are off by default, a stop always goes).
+ */
 const OPTION_OF = {
   [FEATURES.START]: 'allowCommands',
-  [FEATURES.STOP]: 'allowCommands',
   [FEATURES.AVAILABILITY]: 'allowCommands',
   [FEATURES.REBOOT]: 'allowReboot',
 };
@@ -1000,7 +1002,7 @@ export class BlueCurrentApp {
     }
     const { point, role } = target;
     const option = OPTION_OF[role];
-    if (!this.config[option]) {
+    if (option && !this.config[option]) {
       throw this.error(role === FEATURES.REBOOT ? ERRORS.rebootDisabled : ERRORS.disabled);
     }
     const wanted = this.wanted(role, value);
@@ -1077,17 +1079,6 @@ export class BlueCurrentApp {
         }
         // bluecurrent-api: start_session(evse_id, session_token = the card uid).
         return { command: COMMANDS.START, fields: { session_token: point.card } };
-      case FEATURES.STOP: {
-        if (activity === 'charging') {
-          return { command: COMMANDS.STOP, fields: {} };
-        }
-        const vehicle = fresh.vehicle;
-        if (vehicle === undefined || vehicle === null) {
-          throw this.error(ERRORS.unknownState);
-        }
-        // A vehicle plugged in may hold a session that is not charging (smart charging).
-        return vehicle === 'standby' ? null : { command: COMMANDS.STOP, fields: {} };
-      }
       case FEATURES.AVAILABILITY: {
         const current = availabilityOf(activity);
         if (current === undefined) {
@@ -1105,6 +1096,25 @@ export class BlueCurrentApp {
       default:
         return { command: COMMANDS.REBOOT, fields: {} };
     }
+  }
+
+  /**
+   * The request of a stop. In doubt, the stop goes: without a fresh status,
+   * an activity or a vehicle status, it is sent (a stop to a charge point that
+   * is not charging does nothing). Nothing is sent only when the status read
+   * says there is nothing to stop (no vehicle, not charging); refused offline.
+   */
+  stopPlan(fresh) {
+    const stop = { command: COMMANDS.STOP, fields: {} };
+    const activity = fresh?.activity;
+    if (activity === 'offline') {
+      throw this.error(ERRORS.offline);
+    }
+    if (activity === undefined || activity === null || activity === 'charging') {
+      return stop;
+    }
+    // A vehicle plugged in may hold a session that is not charging (smart charging).
+    return fresh.vehicle === 'standby' ? null : stop;
   }
 
   /** A command left without a result: its late result is not taken for the next one. */
@@ -1130,17 +1140,18 @@ export class BlueCurrentApp {
     if (generation !== this.generation || !this.channel) {
       throw this.error(ERRORS.notConnected);
     }
-    if (!fresh) {
+    if (!fresh && role !== FEATURES.STOP) {
       throw this.error(ERRORS.unknownState);
     }
-    const plan = this.plan(role, wanted, fresh, point);
+    const plan =
+      role === FEATURES.STOP ? this.stopPlan(fresh) : this.plan(role, wanted, fresh, point);
     if (!plan) {
       // Nothing to do, nothing sent: the state just read is shown (not awaited).
       this.flush();
       return;
     }
     // The option again, just before sending: it may have been turned off meanwhile.
-    if (!this.config[option]) {
+    if (option && !this.config[option]) {
       throw this.error(role === FEATURES.REBOOT ? ERRORS.rebootDisabled : ERRORS.disabled);
     }
     if (sendBy - this.now() < TIMINGS.commandMinSend) {

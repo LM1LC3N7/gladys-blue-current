@@ -14,6 +14,12 @@ the notes of the version's GitHub Release.
 
 - Integration SDK 0.16 (no change for the devices).
 
+### Fixed
+
+- "Stop the session" works even when the commands are not allowed ("Allow the
+  commands" off), and is sent even when the status of the charge point could
+  not be read in time.
+
 ## [0.1.2] - 2026-10-23
 
 ## [0.1.1] - 2026-10-19

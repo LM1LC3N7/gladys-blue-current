@@ -49,8 +49,9 @@ Les commandes sont des boutons et une liste, jamais des interrupteurs : un
 2. Le statut indique combien de bornes Blue Current liste. Ouvrez l'onglet
    **Découverte** et ajoutez-les.
 3. Pour utiliser les commandes, activez **Autoriser les commandes**
-   (démarrer, arrêter, bloquer, débloquer) et, à part, **Autoriser le
-   redémarrage de la borne**. Les deux sont désactivées par défaut.
+   (démarrer, bloquer, débloquer) et, à part, **Autoriser le redémarrage de
+   la borne**. Les deux sont désactivées par défaut. **Arrêter la session**
+   fonctionne toujours, même quand les deux sont désactivées.
 
 ## Bon à savoir
 
@@ -78,7 +79,11 @@ Les commandes sont des boutons et une liste, jamais des interrupteurs : un
   d'autre ; son propre nom, `gladys-blue-current` et sa version, figure dans
   le User-Agent de la connexion.
 - **Commandes** : avant chacune, l'état de la borne est relu ; la commande
-  est refusée s'il ne peut pas être lu ou si la borne est hors ligne. Rien
+  est refusée s'il ne peut pas être lu ou si la borne est hors ligne.
+  **Arrêter la session** fait exception : dans le doute (état non lu à
+  temps, véhicule inconnu), l'arrêt part quand même, un arrêt envoyé à une
+  borne qui ne charge pas est sans effet ; il n'est refusé que hors ligne ou
+  pendant une pause de limite de requêtes. Rien
   n'est envoyé s'il n'y a rien à faire (démarrer pendant une charge, arrêter
   sans véhicule, bloquer une borne déjà bloquée) : Gladys affiche alors un
   succès. Une session n'est démarrée qu'avec un véhicule branché (sinon

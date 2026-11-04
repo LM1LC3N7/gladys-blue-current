@@ -56,6 +56,14 @@ up to date at the end of every milestone.
   one to the other at run time: change it only on Blue Current's answer.
 - Which error texts a `STATUS_x` carries besides `TIMEOUT` and `REJECTED`.
 
+## Open questions (for Louis)
+
+- **"Block the charge point" (`SET_INOPERATIVE`) without the option?** It
+  prevents charging, so it can be read as a protective command ("lock"),
+  while unblocking is sensitive. Both stay behind `allow_commands` today
+  (behaviour unchanged on 2026-11-04). Should blocking go without the
+  option, like the stop?
+
 ## Decisions
 
 - **SDK `^0.16.0`** (2026-11-04, migration wave 8): it adds the ai, tts and
@@ -113,14 +121,20 @@ up to date at the end of every milestone.
 - **User-Agent** `gladys-blue-current/<version of package.json>`; HELLO
   `homeassistant`, explained in the docs, never another value as a fallback.
 - **Commands are buttons and a select**, never switches (lot 6 lesson);
-  start/stop/availability behind `allow_commands`, reboot behind
-  `allow_reboot` (heavy: it cuts a session). Only REBOOT is offered, not
-  SOFT_RESET.
+  start/availability behind `allow_commands`, reboot behind
+  `allow_reboot` (heavy: it cuts a session). **Stop needs no option**
+  (2026-11-04, fix of the wave 8 review: "stopping is never blocked"; it was
+  behind `allow_commands` since 0.1.0, so refused by default).
+  Only REBOOT is offered, not SOFT_RESET.
 - **Decision on the fresh status only**: `GET_CH_STATUS`, then the fields of
   that answer alone. Start: refused offline, in error or blocked, nothing to
-  do while charging, needs the default card of the charge point. Stop: sent
-  while charging or with a vehicle plugged in (a session may be paused),
-  nothing to do without vehicle, refused when the vehicle status is missing.
+  do while charging, needs the default card of the charge point. Stop
+  ("in doubt, the stop goes", 2026-11-04): sent while charging or with a
+  vehicle plugged in (a session may be paused); also sent without a fresh
+  status in time, with an activity or a vehicle status missing or unreadable
+  (a STOP_SESSION without a session has no effect, Blue Current answers an
+  error, shown as refused or unconfirmed). Nothing to do only when the fresh
+  status says not charging and no vehicle (`standby`).
   Availability: from `activity` (`unavailable` = blocked), refused when it
   says neither. Reboot: refused offline.
 - **Fresh status** (review I3): only a `CH_STATUS` of that charge point
@@ -129,6 +143,14 @@ up to date at the end of every milestone.
   only. **Start** (I2) is refused unless the vehicle is plugged in
   (`vehicle_detected` or `ready`): missing, standby, no power, vehicle error
   give "plug in the vehicle first".
+- **Where a stop still waits** (2026-11-04, kept on purpose):
+  - **Request-limit pause or 429 pause**: the stop is refused with the pause
+    text. During the pause the connection is closed (`!this.channel`), and
+    opening one in the middle of a daily request limit would only extend the
+    pause (Blue Current counts the handshake); there is no other way to send.
+  - **Offline** (fresh status `activity: offline`): refused with "offline";
+    Blue Current cannot reach the charge point, and the text says why.
+  - **Not connected**: nothing can be sent at all ("not connected").
 - **Answers**: one command at a time, except a stop, which never waits for
   the queue (M9); the result `STATUS_x` acks success; "refused" only for
   `REJECTED` or `success: false`; `TIMEOUT` (I4): "sent and received,
