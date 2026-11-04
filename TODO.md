@@ -58,6 +58,12 @@ up to date at the end of every milestone.
 
 ## Decisions
 
+- **SDK `^0.16.0`** (2026-11-04, migration wave 8): it adds the ai, tts and
+  music types; no effect here (`poll_frequency` unused, the devices carry
+  `should_poll: false`). Every feature already had a numeric `min` and `max`
+  (text features 0/0); `test/helpers/coreFeature.js` now checks each one against
+  the core model. `npm test` runs with `--test-timeout=60000`. `keywords`,
+  `countries` and `gladys_version >= 5.3.0` wait until Gladys 5.3 is widespread.
 - **Version 0.1.0 set by hand** in `package.json`, `package-lock.json`, the
   manifest and the `docker_image` tag
   (`ghcr.io/lm1lc3n7/gladys-blue-current:0.1.0`); the first patch release

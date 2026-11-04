@@ -8,7 +8,7 @@ already taken and the next milestones.
 
 A Gladys Assistant **external integration** of type `device`: a Node.js
 service (Node 22+, ESM, no build step) in its own sandboxed Docker container,
-talking to Gladys through `@gladysassistant/integration-sdk` (v0.15) and to
+talking to Gladys through `@gladysassistant/integration-sdk` (v0.16) and to
 Blue Current through `ws` (its two runtime dependencies). It holds one
 WebSocket connection to the official Blue Current API (the one of Home
 Assistant, ported from bluecurrent-api, MIT), shows each charge point as a
@@ -19,7 +19,7 @@ options. Never tested with a real account, not affiliated with Blue Current.
 
 ```bash
 npm install
-npm test                                  # node --test, the built-in runner
+npm test                                  # node --test --test-timeout=60000
 node --test test/app.test.js              # one file
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
@@ -52,6 +52,11 @@ test/helpers/       a fake Blue Current ws server; Gladys is the SDK's fake
 
 ## Rules
 
+- **Features follow the core model.** Every feature has a numeric `min` and
+  `max` (0/0 for text), `read_only` and `has_feedback`: Gladys answers HTTP 422
+  otherwise, and the SDK's fake Gladys does not check it
+  (`test/helpers/coreFeature.js` does). Devices carry `should_poll: false`
+  (Gladys 5.3 polls a device with `poll_frequency` unless it says so).
 - **External ids are forever**: device `chargepoint:<evse_id>`, features
   `activity`, `connector-status`, `charging-state`, `vehicle-status`,
   `power`, `current-l1..3`, `voltage-l1..3`, `session-energy`,

@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
+import { assertCoreDevice } from './helpers/coreFeature.js';
 import { DEVICE_FEATURE_UNITS_BY_CATEGORY } from './helpers/coreUnits.js';
 import {
   CHARGING_STATE,
+  COMMAND_ROLES,
   CONNECTOR_STATUS,
   DEFINITIONS,
   buildDevice,
@@ -13,6 +16,7 @@ import {
   powerOf,
 } from '../src/devices.js';
 import { FEATURES } from '../src/constants.js';
+import { LANGUAGES } from '../src/config.js';
 
 const gladys = {
   externalIds: (type, id) => {
@@ -105,4 +109,16 @@ test('a device keeps the features of the created one, never fewer', () => {
     buildDevice(gladys, { evseId: 'BCU9' }, { language: 'en' }).name,
     'Blue Current BCU9',
   );
+});
+
+test('every feature has a numeric min and max and the other core fields', () => {
+  const real = createFakeGladys({ selector: 'blue-current' });
+  let features = 0;
+  for (const language of LANGUAGES) {
+    for (const point of [{ evseId: 'BCU1', name: 'Garage', model: 'BC-HC' }, { evseId: 'BCU2' }]) {
+      features += assertCoreDevice(buildDevice(real, point, { language }), point.evseId);
+    }
+  }
+  const perDevice = Object.keys(DEFINITIONS).length + COMMAND_ROLES.length;
+  assert.equal(features, 2 * LANGUAGES.length * perDevice);
 });
