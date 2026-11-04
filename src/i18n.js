@@ -184,6 +184,10 @@ export const ERRORS = {
     'Command sent and received, without a result from the charge point: the state will follow.',
     "Commande envoyée et reçue, sans résultat de la borne : l'état suivra.",
   ),
+  stopSentOffline: both(
+    'Stop sent, but the charge point seems offline: not confirmed. The state will follow.',
+    "Arrêt envoyé, mais la borne semble hors ligne : non confirmé. L'état suivra.",
+  ),
   sentNoConfirmation: both(
     'Command sent, without confirmation from Blue Current: the state will follow.',
     "Commande envoyée, sans confirmation de Blue Current : l'état suivra.",

@@ -3,8 +3,9 @@
 // (validated first on a short connection, as bluecurrent-api does), the
 // charge points and their pushed statuses, the Gladys devices and their
 // states, the transport badges, the "Test the connection" button, and the
-// commands (start, stop, block, reboot), refused unless the configuration
-// allows them. index.js only wires the SDK handlers to it.
+// commands: start, block/unblock and reboot, refused unless the configuration
+// allows them; stop, which needs no option and is sent at once, without
+// reading the status first (as Home Assistant does). index.js only wires the SDK handlers to it.
 //
 // Never a loop: every new connection waits for a timer (backoff with jitter,
 // the request-limit pause until midnight in Amsterdam, a 429 pause, or the
@@ -49,8 +50,9 @@ import { fileStore, normalizeMemory } from './store.js';
 import { nextReset } from './time.js';
 
 /**
- * The option that allows each command. A stop has none: it is never blocked
- * (the sensitive commands are off by default, a stop always goes).
+ * The option that allows each command. A stop has none (the sensitive
+ * commands are off by default, a stop needs no option); any other role
+ * missing here is refused.
  */
 const OPTION_OF = {
   [FEATURES.START]: 'allowCommands',
@@ -61,10 +63,12 @@ const OPTION_OF = {
 /** The fields of a fresh status a decision needs: an answer without them is not the one awaited. */
 const NEEDED = {
   [FEATURES.START]: ['activity', 'vehicle_status'],
-  [FEATURES.STOP]: ['activity', 'vehicle_status'],
   [FEATURES.AVAILABILITY]: ['activity'],
   [FEATURES.REBOOT]: ['activity'],
 };
+
+/** The request of a stop: always the same, sent without a status read (as Home Assistant). */
+const STOP_PLAN = Object.freeze({ command: COMMANDS.STOP, fields: {} });
 
 /** A vehicle a session can be started for. */
 const READY_VEHICLES = new Set(['vehicle_detected', 'ready']);
@@ -984,6 +988,15 @@ export class BlueCurrentApp {
     return new Error(word(text, this.config.language));
   }
 
+  /** Whether the option of a command is on: a stop needs none; a role without an option is refused. */
+  optionOn(role) {
+    if (role === FEATURES.STOP) {
+      return true;
+    }
+    const option = OPTION_OF[role];
+    return option !== undefined && this.config[option] === true;
+  }
+
   /** A command value, strictly: a button sends 1; the select one of its options. */
   wanted(role, value) {
     if (role === FEATURES.AVAILABILITY) {
@@ -992,7 +1005,10 @@ export class BlueCurrentApp {
     return value === PRESSED || value === String(PRESSED) ? PRESSED : undefined;
   }
 
-  /** A command from Gladys: checks, a fresh status, then one request. */
+  /**
+   * A command from Gladys: checks, then one request. A stop is refused only
+   * when nothing can be sent (not connected, request-limit or 429 pause).
+   */
   async setValue(device, feature, value) {
     const received = this.now();
     const target = this.featureOf(feature?.external_id);
@@ -1001,8 +1017,7 @@ export class BlueCurrentApp {
       throw this.error(target ? ERRORS.readOnly : ERRORS.unknownChargePoint);
     }
     const { point, role } = target;
-    const option = OPTION_OF[role];
-    if (option && !this.config[option]) {
+    if (!this.optionOn(role)) {
       throw this.error(role === FEATURES.REBOOT ? ERRORS.rebootDisabled : ERRORS.disabled);
     }
     const wanted = this.wanted(role, value);
@@ -1022,7 +1037,10 @@ export class BlueCurrentApp {
     }
     this.commanding += 1;
     try {
-      await this.command({ point, role, option, wanted, received, generation: this.generation });
+      const generation = this.generation;
+      await (role === FEATURES.STOP
+        ? this.send({ point, role, plan: STOP_PLAN, received, generation })
+        : this.command({ point, role, wanted, received, generation }));
     } finally {
       this.commanding -= 1;
     }
@@ -1093,28 +1111,12 @@ export class BlueCurrentApp {
           fields: {},
         };
       }
-      default:
+      case FEATURES.REBOOT:
         return { command: COMMANDS.REBOOT, fields: {} };
+      default:
+        // Never a request for a role not planned here (a stop never comes here).
+        throw this.error(ERRORS.invalidValue);
     }
-  }
-
-  /**
-   * The request of a stop. In doubt, the stop goes: without a fresh status,
-   * an activity or a vehicle status, it is sent (a stop to a charge point that
-   * is not charging does nothing). Nothing is sent only when the status read
-   * says there is nothing to stop (no vehicle, not charging); refused offline.
-   */
-  stopPlan(fresh) {
-    const stop = { command: COMMANDS.STOP, fields: {} };
-    const activity = fresh?.activity;
-    if (activity === 'offline') {
-      throw this.error(ERRORS.offline);
-    }
-    if (activity === undefined || activity === null || activity === 'charging') {
-      return stop;
-    }
-    // A vehicle plugged in may hold a session that is not charging (smart charging).
-    return fresh.vehicle === 'standby' ? null : stop;
   }
 
   /** A command left without a result: its late result is not taken for the next one. */
@@ -1127,7 +1129,7 @@ export class BlueCurrentApp {
    * than 3.5 s after the click, and Gladys is answered at 4.3 s at the latest,
    * whatever the publication of the states (which is never awaited here).
    */
-  async command({ point, role, option, wanted, received, generation }) {
+  async command({ point, role, wanted, received, generation }) {
     const sendBy = received + TIMINGS.commandSendBy;
     if (sendBy - this.now() < TIMINGS.commandMinRead) {
       throw this.error(ERRORS.tooSlow);
@@ -1140,23 +1142,30 @@ export class BlueCurrentApp {
     if (generation !== this.generation || !this.channel) {
       throw this.error(ERRORS.notConnected);
     }
-    if (!fresh && role !== FEATURES.STOP) {
+    if (!fresh) {
       throw this.error(ERRORS.unknownState);
     }
-    const plan =
-      role === FEATURES.STOP ? this.stopPlan(fresh) : this.plan(role, wanted, fresh, point);
+    const plan = this.plan(role, wanted, fresh, point);
     if (!plan) {
       // Nothing to do, nothing sent: the state just read is shown (not awaited).
       this.flush();
       return;
     }
     // The option again, just before sending: it may have been turned off meanwhile.
-    if (option && !this.config[option]) {
+    if (!this.optionOn(role)) {
       throw this.error(role === FEATURES.REBOOT ? ERRORS.rebootDisabled : ERRORS.disabled);
     }
     if (sendBy - this.now() < TIMINGS.commandMinSend) {
       throw this.error(ERRORS.tooSlow);
     }
+    await this.send({ point, role, plan, received, generation });
+  }
+
+  /**
+   * Sends one request and waits for its answer until 4.3 s after the click.
+   * A stop comes here directly, without a status read first: never "too slow".
+   */
+  async send({ point, role, plan, received, generation }) {
     const late = this.lateIgnore;
     let skipLate =
       late &&
@@ -1203,14 +1212,27 @@ export class BlueCurrentApp {
           this.logger.warn(`Blue Current refused ${plan.command}`);
           throw this.error(ERRORS.refused);
         case 'timeout':
-          throw this.error(ERRORS.timedOut);
+          throw this.error(this.unconfirmed(role, point, ERRORS.timedOut));
         default:
-          throw this.error(ERRORS.sentNoConfirmation);
+          throw this.error(this.unconfirmed(role, point, ERRORS.sentNoConfirmation));
       }
     }
     // It may have left: never announced "not sent".
     this.ignoreLate(plan.command, point.evseId);
-    throw this.error(receivedIt ? ERRORS.receivedNoResult : ERRORS.sentNoConfirmation);
+    throw this.error(
+      this.unconfirmed(
+        role,
+        point,
+        receivedIt ? ERRORS.receivedNoResult : ERRORS.sentNoConfirmation,
+      ),
+    );
+  }
+
+  /** The reason of a command left unconfirmed: a stop to a charge point last seen offline says so. */
+  unconfirmed(role, point, text) {
+    return role === FEATURES.STOP && point.status?.activity === 'offline'
+      ? ERRORS.stopSentOffline
+      : text;
   }
 
   /** The status asked again a few seconds after a command, to show its effect. */

@@ -51,7 +51,7 @@ Les commandes sont des boutons et une liste, jamais des interrupteurs : un
 3. Pour utiliser les commandes, activez **Autoriser les commandes**
    (démarrer, bloquer, débloquer) et, à part, **Autoriser le redémarrage de
    la borne**. Les deux sont désactivées par défaut. **Arrêter la session**
-   fonctionne toujours, même quand les deux sont désactivées.
+   ne demande aucune option.
 
 ## Bon à savoir
 
@@ -80,19 +80,19 @@ Les commandes sont des boutons et une liste, jamais des interrupteurs : un
   le User-Agent de la connexion.
 - **Commandes** : avant chacune, l'état de la borne est relu ; la commande
   est refusée s'il ne peut pas être lu ou si la borne est hors ligne.
-  **Arrêter la session** fait exception : dans le doute (état non lu à
-  temps, véhicule inconnu), l'arrêt part quand même, un arrêt envoyé à une
-  borne qui ne charge pas est sans effet ; il n'est refusé que hors ligne ou
-  pendant une pause de limite de requêtes. Rien
-  n'est envoyé s'il n'y a rien à faire (démarrer pendant une charge, arrêter
-  sans véhicule, bloquer une borne déjà bloquée) : Gladys affiche alors un
-  succès. Une session n'est démarrée qu'avec un véhicule branché (sinon
-  « branchez d'abord le véhicule »), avec la carte de recharge par défaut de
-  la borne, telle que Blue Current la donne. Une commande à la fois, sauf
-  **Arrêter la session**, qui n'attend jamais. Gladys attend 5 secondes : si
-  Blue Current n'a pas confirmé d'ici là, Gladys affiche « Commande envoyée,
-  sans confirmation » (ou « envoyée et reçue, sans résultat de la borne ») :
-  la commande a pu être exécutée, l'état suivra.
+  **Arrêter la session** fait exception : l'arrêt part tout de suite, sans
+  relire l'état, même hors ligne (un arrêt envoyé à une borne qui ne charge
+  pas est sans effet) ; il n'est refusé que sans connexion à Blue Current ou
+  pendant une pause (limite de requêtes, ou trop de requêtes). Rien
+  n'est envoyé s'il n'y a rien à faire (démarrer pendant une charge, bloquer
+  une borne déjà bloquée) : Gladys affiche alors un succès. Une session n'est
+  démarrée qu'avec un véhicule branché (sinon « branchez d'abord le véhicule
+  »), avec la carte de recharge par défaut de la borne, telle que Blue Current
+  la donne. Une commande à la fois, sauf **Arrêter la session**, qui n'attend
+  jamais. Gladys attend 5 secondes : si Blue Current n'a pas confirmé d'ici
+  là, Gladys affiche « Commande envoyée, sans confirmation » (ou « envoyée et
+  reçue, sans résultat de la borne ») : la commande a pu être exécutée, l'état
+  suivra.
 - **Redémarrage** : la borne redémarre et une session en cours est coupée.
 - La puissance est la somme, sur les phases, de la tension par le courant
   (l'intégration Home Assistant affiche une estimation un peu différente).

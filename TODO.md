@@ -123,18 +123,18 @@ up to date at the end of every milestone.
 - **Commands are buttons and a select**, never switches (lot 6 lesson);
   start/availability behind `allow_commands`, reboot behind
   `allow_reboot` (heavy: it cuts a session). **Stop needs no option**
-  (2026-11-04, fix of the wave 8 review: "stopping is never blocked"; it was
+  (2026-11-04, fix of the wave 8 review: "a stop needs no option"; it was
   behind `allow_commands` since 0.1.0, so refused by default).
   Only REBOOT is offered, not SOFT_RESET.
 - **Decision on the fresh status only**: `GET_CH_STATUS`, then the fields of
   that answer alone. Start: refused offline, in error or blocked, nothing to
   do while charging, needs the default card of the charge point. Stop
-  ("in doubt, the stop goes", 2026-11-04): sent while charging or with a
-  vehicle plugged in (a session may be paused); also sent without a fresh
-  status in time, with an activity or a vehicle status missing or unreadable
-  (a STOP_SESSION without a session has no effect, Blue Current answers an
-  error, shown as refused or unconfirmed). Nothing to do only when the fresh
-  status says not charging and no vehicle (`standby`).
+  (2026-11-04, review r2): sent at once, **without a status read**, as Home
+  Assistant does (`client.stop_session`, no state check): whatever the state,
+  offline too, never "too slow" (a read first made it miss the 3.5 s limit
+  about one time in two on a real clock). A STOP_SESSION without a session
+  has no effect. Left unconfirmed while the charge point was last seen
+  offline: "stop sent, the charge point seems offline: not confirmed".
   Availability: from `activity` (`unavailable` = blocked), refused when it
   says neither. Reboot: refused offline.
 - **Fresh status** (review I3): only a `CH_STATUS` of that charge point
@@ -143,13 +143,12 @@ up to date at the end of every milestone.
   only. **Start** (I2) is refused unless the vehicle is plugged in
   (`vehicle_detected` or `ready`): missing, standby, no power, vehicle error
   give "plug in the vehicle first".
-- **Where a stop still waits** (2026-11-04, kept on purpose):
+- **Where a stop is still refused** (2026-11-04, kept on purpose; nothing is
+  queued, the stop is refused with a text):
   - **Request-limit pause or 429 pause**: the stop is refused with the pause
     text. During the pause the connection is closed (`!this.channel`), and
     opening one in the middle of a daily request limit would only extend the
     pause (Blue Current counts the handshake); there is no other way to send.
-  - **Offline** (fresh status `activity: offline`): refused with "offline";
-    Blue Current cannot reach the charge point, and the text says why.
   - **Not connected**: nothing can be sent at all ("not connected").
 - **Answers**: one command at a time, except a stop, which never waits for
   the queue (M9); the result `STATUS_x` acks success; "refused" only for

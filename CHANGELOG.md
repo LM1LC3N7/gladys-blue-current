@@ -17,8 +17,9 @@ the notes of the version's GitHub Release.
 ### Fixed
 
 - "Stop the session" works even when the commands are not allowed ("Allow the
-  commands" off), and is sent even when the status of the charge point could
-  not be read in time.
+  commands" off). It is sent at once, without reading the status of the
+  charge point first, offline too; it is refused only when Gladys is not
+  connected to Blue Current or during a request-limit pause.
 
 ## [0.1.2] - 2026-10-23
 

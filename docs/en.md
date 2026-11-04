@@ -48,7 +48,7 @@ everything off" of a voice assistant or a scene cannot reach them.
    **Discovery** tab and add them.
 3. To use the commands, turn on **Allow the commands** (start, block,
    unblock) and, separately, **Allow rebooting the charge point**. Both are
-   off by default. **Stop the session** always works, even with both off.
+   off by default. **Stop the session** needs no option.
 
 ## Good to know
 
@@ -76,18 +76,19 @@ everything off" of a voice assistant or a scene cannot reach them.
   connection.
 - **Commands**: before each one, the status of the charge point is read
   again; the command is refused if it cannot be read or if the charge point
-  is offline. **Stop the session** is the exception: in doubt (status not
-  read in time, vehicle unknown), it is sent anyway, a stop to a charge point
-  that is not charging does nothing; it is refused only offline or during a
-  request-limit pause. Nothing is sent when there is nothing to do (start while
-  charging, stop without a vehicle, block a charge point already blocked):
-  Gladys then shows success. A session is started only with a vehicle plugged
-  in ("plug in the vehicle first" otherwise), with the default charge card of
-  the charge point, as Blue Current gives it. One command at a time, except
-  **Stop the session**, which never waits. Gladys waits 5 seconds: if Blue
-  Current has not confirmed by then, Gladys shows "Command sent, without
-  confirmation" (or "sent and received, without a result from the charge
-  point"): the command may have been carried out, the state follows.
+  is offline. **Stop the session** is the exception: it is sent at once,
+  without reading the status, offline too (a stop to a charge point that is
+  not charging does nothing); it is refused only when not connected to Blue
+  Current or during a pause (request limit, or too many requests).
+  Nothing is sent when there is nothing to do (start while charging, block a
+  charge point already blocked): Gladys then shows success. A session is started only
+  with a vehicle plugged in ("plug in the vehicle first" otherwise), with the
+  default charge card of the charge point, as Blue Current gives it. One
+  command at a time, except **Stop the session**, which never waits. Gladys
+  waits 5 seconds: if Blue Current has not confirmed by then, Gladys shows
+  "Command sent, without confirmation" (or "sent and received, without a
+  result from the charge point"): the command may have been carried out, the
+  state follows.
 - **Reboot**: the charge point restarts and a session in progress is cut.
 - The power is the sum, over the phases, of voltage times current (the Home
   Assistant integration shows a slightly different estimate).

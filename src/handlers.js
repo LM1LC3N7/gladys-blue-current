@@ -12,7 +12,7 @@ export function registerHandlers(gladys, app, logger) {
   gladys.onDeviceUpdated((device) => app.deviceCreated(device));
   gladys.onDeviceDeleted((device) => app.deviceDeleted(device));
 
-  // The commands, refused unless allowed in the configuration.
+  // The commands: each one needs its option, except the stop (src/app.js).
   gladys.onSetValue((device, feature, value) => app.setValue(device, feature, value));
 
   // Configuration screen button.

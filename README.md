@@ -5,7 +5,7 @@
 Blue Current WebSocket API (the one of its Home Assistant integration):
 status, connector and charging state, vehicle, power, current and voltage per
 phase, energy, duration and cost of the session, maximum current; start,
-block/unblock and reboot behind off-by-default options, stop always allowed.
+block/unblock and reboot behind off-by-default options, stop without option.
 **Never tested with a real account. Not affiliated with Blue Current.**
 
 User documentation: [docs/en.md](docs/en.md) · [docs/fr.md](docs/fr.md).
@@ -45,13 +45,14 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BlueCurrentApp)
   `Map`, ids checked. Answers are attributed to their request by their
   `object` (`CH_STATUS`, `RECEIVED_x`, `STATUS_x`) and charge point.
 - **Commands**: `button`/`push` and one `text`/`select`, never a switch.
-  `allow_commands` (start, block) and `allow_reboot` are off by default; a
-  stop needs no option, never blocked. Each command: the option (none for a
-  stop), a fresh `GET_CH_STATUS` (decided on that
+  `allow_commands` (start, block) and `allow_reboot` are off by default. A
+  stop needs no option and is sent at once, without a status read (as Home
+  Assistant), offline too; it is refused only when not connected or during a
+  request-limit or 429 pause. Every other command: the option, a fresh
+  `GET_CH_STATUS` (decided on that
   answer only, which must carry the fields of the decision, never on the
   memory; a start needs a vehicle plugged in; nothing is sent when there is
-  nothing to do; a stop never waits for another command, and in doubt (no
-  fresh status, vehicle unknown) a stop is sent anyway), the option checked
+  nothing to do; a stop never waits for another command), the option checked
   again just before
   sending, sent within 3.5 s of the click or refused unsent, Gladys answered
   within 4.3 s whatever the publication of states; a command that may have

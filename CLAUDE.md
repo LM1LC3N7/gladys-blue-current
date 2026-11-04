@@ -13,7 +13,7 @@ Blue Current through `ws` (its two runtime dependencies). It holds one
 WebSocket connection to the official Blue Current API (the one of Home
 Assistant, ported from bluecurrent-api, MIT), shows each charge point as a
 Gladys device, and offers start, block and reboot behind off-by-default
-options; stop is never blocked (no option, sent even in doubt). Never tested
+options; stop needs no option and is sent without a status read. Never tested
 with a real account, not affiliated with Blue Current.
 
 ## Commands
@@ -68,13 +68,14 @@ test/helpers/       a fake Blue Current ws server; Gladys is the SDK's fake
   the action `test_connection`) are frozen.
 - **Commands**: never a switch nor a binary; refused unless their option;
   decided on a fresh `GET_CH_STATUS` answer only (never merged with the
-  memory), refused when a needed value is missing. **A stop is never
-  blocked**: no option (not in `OPTION_OF`), and in doubt (no fresh status,
-  activity or vehicle missing) it is sent anyway; it waits only offline, not
-  connected, or during a request-limit pause (see TODO.md); the option
-  checked again just before sending; never sent after 3.5 s, Gladys answered
-  by 4.3 s, the publication of states never awaited; one at a time; a
-  command that may have left is "sent, without confirmation", never "not sent".
+  memory), refused when a needed value is missing; the option checked again
+  just before sending (a role missing from `OPTION_OF` is refused). **A
+  stop** needs no option and is sent at once, without a status read (as Home
+  Assistant), offline too, never "too slow"; it is refused only when not
+  connected or during a request-limit or 429 pause (see TODO.md); never sent
+  after 3.5 s, Gladys answered by 4.3 s, the publication of states never
+  awaited; one at a time; a command that may have left is "sent, without
+  confirmation", never "not sent".
 - **Never connect in a loop**: every attempt waits for a timer (backoff,
   request-limit pause, refused-token stop). A Gladys reconnection
   (`connected`) clears neither pauses, stops nor the connection, but sends

@@ -117,7 +117,7 @@ export const DEFINITIONS = {
   [FEATURES.MAX_CURRENT]: energy(T.ENERGY_SENSOR.CURRENT, U.AMPERE, 100),
 };
 
-/** The commands, refused unless allowed (src/app.js); the reboot has its own option. */
+/** The commands (src/app.js): start and block/unblock need "allow_commands", the reboot its own option; the stop needs none. */
 export const COMMAND_ROLES = [
   FEATURES.START,
   FEATURES.STOP,
