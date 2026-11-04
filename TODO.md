@@ -56,6 +56,14 @@ up to date at the end of every milestone.
   one to the other at run time: change it only on Blue Current's answer.
 - Which error texts a `STATUS_x` carries besides `TIMEOUT` and `REJECTED`.
 
+## Next patch
+
+- A stop pressed while the charge point is removed from the account (during the 2.8 s status read) is refused
+  "unknown charge point" and not counted, so a command pressed before it can still go: count the stop before
+  that check too (review vague8-xhigh-r4).
+- `gladys_version` is still `>=4.86.0` since 0.1.0; the module sheet asks `>=5.1.0`.
+- CLAUDE.md: one line too long (cosmetic).
+
 ## Open questions (for Louis)
 
 - **"Block the charge point" (`SET_INOPERATIVE`) without the option?** It
