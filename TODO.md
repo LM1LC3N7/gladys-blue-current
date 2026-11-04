@@ -133,14 +133,26 @@ up to date at the end of every milestone.
   Assistant does (`client.stop_session`, no state check): whatever the state,
   offline too, never "too slow" (a read first made it miss the 3.5 s limit
   about one time in two on a real clock). A STOP_SESSION without a session
-  has no effect. Left unconfirmed while the charge point was last seen
-  offline: "stop sent, the charge point seems offline: not confirmed".
+  has no effect (Blue Current may answer it with a refusal, shown as "Blue
+  Current refused the command": harmless). Left unconfirmed while the charge
+  point was last seen offline: "stop sent, the charge point seems offline:
+  not confirmed". **A stop cancels a command of its charge point still
+  reading the status** (2026-11-04, review r3, B3): no command pressed on a
+  charge point before a stop leaves after it. A count of the stops per charge point, raised at the
+  press of each stop (before any refusal of the stop itself), is taken at
+  the click of every other command and compared once the status read (its
+  only wait) is over; from there to the request nothing is awaited. A stop
+  meanwhile: "Cancelled: a stop was requested meanwhile, nothing was sent",
+  whatever the read brought. A stop on another charge point cancels nothing.
+  There is no other wait between a decision and its request: no queue (one
+  command at a time, the others refused), no command kept across a lost
+  connection (the read ends with it) nor during a backoff or a pause.
   Availability: from `activity` (`unavailable` = blocked), refused when it
   says neither. Reboot: refused offline.
 - **Fresh status** (review I3): only a `CH_STATUS` of that charge point
   carrying the fields of the decision (`activity`, plus `vehicle_status` to
-  start or stop) is taken; a partial push meanwhile is merged for the display
-  only. **Start** (I2) is refused unless the vehicle is plugged in
+  start; a stop reads nothing) is taken; a partial push meanwhile is merged
+  for the display only. **Start** (I2) is refused unless the vehicle is plugged in
   (`vehicle_detected` or `ready`): missing, standby, no power, vehicle error
   give "plug in the vehicle first".
 - **Where a stop is still refused** (2026-11-04, kept on purpose; nothing is

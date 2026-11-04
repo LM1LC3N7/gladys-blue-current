@@ -19,7 +19,13 @@ the notes of the version's GitHub Release.
 - "Stop the session" works even when the commands are not allowed ("Allow the
   commands" off). It is sent at once, without reading the status of the
   charge point first, offline too; it is refused only when Gladys is not
-  connected to Blue Current or during a request-limit pause.
+  connected to Blue Current or during a pause (request limit, or too many
+  requests: HTTP 429). Without a session, Blue Current may answer it with a
+  refusal, without consequence.
+- A command pressed just before "Stop the session" and still reading the
+  status of the charge point is cancelled ("Cancelled: a stop was requested
+  meanwhile, nothing was sent"): no command pressed on a charge point before
+  a stop is sent after it.
 
 ## [0.1.2] - 2026-10-23
 

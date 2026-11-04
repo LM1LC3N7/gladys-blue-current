@@ -18,6 +18,7 @@ import {
   API_TOKEN,
   AUTH,
   EVSE,
+  EVSE2,
   charging,
   chargePoint,
   fakeBlueCurrent,
@@ -833,6 +834,156 @@ test('one command at a time, but a stop never waits for the queue (M9)', async (
   assert.equal(server.commands('STOP_SESSION').length, 1, 'the stop went during the start');
   await advance(5_000, 100);
   await first;
+});
+
+/** Each command but a stop: [role, value, a status on which it would be sent, its request]. */
+const SENDABLE = [
+  [FEATURES.START, 1, READY, 'START_SESSION'],
+  [FEATURES.AVAILABILITY, 'operative', status({ activity: 'unavailable' }), 'SET_OPERATIVE'],
+  [FEATURES.REBOOT, 1, status(), 'REBOOT'],
+  [FEATURES.AVAILABILITY, 'blocked', status(), 'SET_INOPERATIVE'],
+];
+const ALL_ON = { ...COMMANDS_ON, allow_reboot: true };
+/** The requests sent on the connection from `from` on, status reads left out. */
+const requestsFrom = (server, from, socket = server.main) =>
+  socket.sent
+    .slice(from)
+    .map((m) => m.command)
+    .filter((c) => c !== 'GET_CH_STATUS');
+
+test('B3 (r3): a command still reading its status when a stop is pressed is cancelled, never sent after the stop', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys, app, advance } = await setup(t, { config: ALL_ON, server });
+  // The stop answered at once, or still waiting for its answer when the status comes.
+  for (const stopAnswered of [true, false]) {
+    for (const [role, value, data, command] of SENDABLE) {
+      const name = `${command}, stop answered: ${stopAnswered}`;
+      server.silentStatus = true;
+      if (!stopAnswered) {
+        server.silentCommands.add('STOP_SESSION');
+      }
+      const from = server.main.sent.length;
+      const pending = press(gladys, role, value);
+      await settle();
+      const stop = press(gladys, FEATURES.STOP);
+      await settle();
+      assert.deepEqual(requestsFrom(server, from), ['STOP_SESSION'], name);
+      // The status the command waits for arrives after the stop: on it, the command would go.
+      server.push({ object: 'CH_STATUS', evse_id: EVSE, data });
+      await advance(1_000, 100);
+      const ack = await pending;
+      assert.equal(ack.success, false, name);
+      assert.ok(errorOf(ack).includes(ERRORS.cancelledByStop.fr), `${name}: ${errorOf(ack)}`);
+      await advance(5_000, 100);
+      const stopAck = await stop;
+      assert.equal(stopAck.success, stopAnswered, `${name}: ${errorOf(stopAck)}`);
+      assert.deepEqual(requestsFrom(server, from), ['STOP_SESSION'], name);
+      assert.equal(server.commands(command).length, 0, name);
+      server.silentCommands.delete('STOP_SESSION');
+      await advance(TIMINGS.lateResultIgnore + 1_000, 10_000);
+    }
+  }
+  // In English too.
+  await app.configUpdated({ ...ALL_ON, language: 'en' });
+  server.silentStatus = true;
+  const pending = press(gladys, FEATURES.START);
+  await settle();
+  await press(gladys, FEATURES.STOP);
+  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: READY });
+  await advance(1_000, 100);
+  const ack = await pending;
+  assert.match(errorOf(ack), /Cancelled: a stop was requested meanwhile, nothing was sent/);
+  assert.equal(server.commands('START_SESSION').length, 0);
+  assert.match(ERRORS.cancelledByStop.fr, /^Annulée : un arrêt a été demandé entre-temps/);
+});
+
+test('B3 (r3): a stop pressed during the read: the command says cancelled whatever the read brings', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys, advance } = await setup(t, { config: ALL_ON, server });
+  // What comes after the stop: a status with nothing to do, an offline one,
+  // no status at all, or the connection lost.
+  const cases = [
+    [FEATURES.START, 1, charging()],
+    [FEATURES.AVAILABILITY, 'operative', status()],
+    [FEATURES.AVAILABILITY, 'blocked', status({ activity: 'unavailable' })],
+    [FEATURES.START, 1, status({ activity: 'offline', vehicle_status: 'B' })],
+    [FEATURES.REBOOT, 1, status({ activity: 'offline' })],
+    [FEATURES.START, 1, 'silent'],
+    [FEATURES.REBOOT, 1, 'dropped'],
+  ];
+  for (const [role, value, data] of cases) {
+    const name = `${role} ${value} ${typeof data === 'string' ? data : data.activity}`;
+    server.silentStatus = true;
+    const socket = server.main;
+    const from = socket.sent.length;
+    const pending = press(gladys, role, value);
+    await settle();
+    const stop = await press(gladys, FEATURES.STOP);
+    assert.equal(stop.success, true, `${name}: ${errorOf(stop)}`);
+    if (data === 'dropped') {
+      socket.drop(1006);
+    } else if (data !== 'silent') {
+      server.push({ object: 'CH_STATUS', evse_id: EVSE, data });
+    }
+    await advance(5_000, 100);
+    const ack = await pending;
+    assert.equal(ack.success, false, name);
+    assert.ok(errorOf(ack).includes(ERRORS.cancelledByStop.fr), `${name}: ${errorOf(ack)}`);
+    assert.deepEqual(requestsFrom(server, from, socket), ['STOP_SESSION'], name);
+    await advance(MINUTE, 1_000);
+  }
+});
+
+test('B3 (r3): the normal order still works: a command confirmed then a stop, or a stop then a command', async (t) => {
+  const server = fakeBlueCurrent();
+  const { gladys, advance } = await setup(t, { config: ALL_ON, server });
+  for (const [role, value, data, command] of SENDABLE) {
+    server.statuses[EVSE] = data;
+    let from = server.main.sent.length;
+    const ack = await press(gladys, role, value);
+    assert.equal(ack.success, true, `${command}: ${errorOf(ack)}`);
+    const stop = await press(gladys, FEATURES.STOP);
+    assert.equal(stop.success, true, `${command}: ${errorOf(stop)}`);
+    assert.deepEqual(requestsFrom(server, from), [command, 'STOP_SESSION'], command);
+    // A stop pressed (and done) before the command: the command still goes.
+    server.statuses[EVSE] = data;
+    from = server.main.sent.length;
+    const again = await press(gladys, role, value);
+    assert.equal(again.success, true, `${command} after a stop: ${errorOf(again)}`);
+    assert.deepEqual(requestsFrom(server, from), [command], command);
+    await advance(TIMINGS.refreshAfterCommand + 1_000);
+  }
+});
+
+test('B3 (r3): a stop cancels the commands of its own charge point only', async (t) => {
+  const server = fakeBlueCurrent({
+    points: [chargePoint(), chargePoint(EVSE2, { name: 'Allée' })],
+  });
+  const { gladys, advance } = await setup(t, { config: ALL_ON, server });
+  const other = gladys.fake.discoveredDevices.find((d) => d.external_id.endsWith(`:${EVSE2}`));
+  const stopOther = () =>
+    gladys.fake.setValue(
+      other,
+      other.features.find((f) => f.external_id.endsWith(`:${FEATURES.STOP}`)),
+      1,
+    );
+  server.silentStatus = true;
+  const pending = press(gladys, FEATURES.START);
+  await settle();
+  const stop = await stopOther();
+  assert.equal(stop.success, true, errorOf(stop));
+  assert.deepEqual(
+    server.commands('STOP_SESSION').map((m) => m.evse_id),
+    [EVSE2],
+  );
+  server.push({ object: 'CH_STATUS', evse_id: EVSE, data: READY });
+  await advance(1_000, 100);
+  const ack = await pending;
+  assert.equal(ack.success, true, errorOf(ack));
+  assert.deepEqual(
+    server.commands('START_SESSION').map((m) => m.evse_id),
+    [EVSE],
+  );
 });
 
 test('not connected or no default card: refused, nothing sent', async (t) => {

@@ -82,10 +82,15 @@ Les commandes sont des boutons et une liste, jamais des interrupteurs : un
   est refusée s'il ne peut pas être lu ou si la borne est hors ligne.
   **Arrêter la session** fait exception : l'arrêt part tout de suite, sans
   relire l'état, même hors ligne (un arrêt envoyé à une borne qui ne charge
-  pas est sans effet) ; il n'est refusé que sans connexion à Blue Current ou
-  pendant une pause (limite de requêtes, ou trop de requêtes). Rien
-  n'est envoyé s'il n'y a rien à faire (démarrer pendant une charge, bloquer
-  une borne déjà bloquée) : Gladys affiche alors un succès. Une session n'est
+  pas est sans effet ; Blue Current peut alors répondre par un refus, affiché
+  « Blue Current a refusé la commande », sans conséquence) ; il n'est refusé
+  que sans connexion à Blue Current ou pendant une pause (limite de
+  requêtes, ou trop de requêtes). Un arrêt annule une commande de la même
+  borne encore en train de relire l'état (pressée juste avant lui) : elle
+  répond « Annulée : un arrêt a été demandé entre-temps, rien n'a été
+  envoyé », et aucune commande pressée sur une borne avant un arrêt ne part
+  après lui. Rien n'est envoyé s'il n'y a rien à faire (démarrer pendant une
+  charge, bloquer une borne déjà bloquée) : Gladys affiche alors un succès. Une session n'est
   démarrée qu'avec un véhicule branché (sinon « branchez d'abord le véhicule
   »), avec la carte de recharge par défaut de la borne, telle que Blue Current
   la donne. Une commande à la fois, sauf **Arrêter la session**, qui n'attend

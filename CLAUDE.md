@@ -72,10 +72,13 @@ test/helpers/       a fake Blue Current ws server; Gladys is the SDK's fake
   just before sending (a role missing from `OPTION_OF` is refused). **A
   stop** needs no option and is sent at once, without a status read (as Home
   Assistant), offline too, never "too slow"; it is refused only when not
-  connected or during a request-limit or 429 pause (see TODO.md); never sent
-  after 3.5 s, Gladys answered by 4.3 s, the publication of states never
-  awaited; one at a time; a command that may have left is "sent, without
-  confirmation", never "not sent".
+  connected or during a request-limit or 429 pause (see TODO.md). **A stop
+  cancels a command of its charge point still reading the status**: no
+  command pressed on a charge point before a stop leaves after it
+  (`stopCount` per charge point, raised at each stop press, compared once
+  the read is over, nothing awaited from there to the request). Never sent after 3.5 s, Gladys answered by 4.3 s,
+  the publication of states never awaited; one at a time; a command that may
+  have left is "sent, without confirmation", never "not sent".
 - **Never connect in a loop**: every attempt waits for a timer (backoff,
   request-limit pause, refused-token stop). A Gladys reconnection
   (`connected`) clears neither pauses, stops nor the connection, but sends

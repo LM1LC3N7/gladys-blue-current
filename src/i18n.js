@@ -143,6 +143,10 @@ export const ERRORS = {
     'Another command is still running: try again in a few seconds.',
     'Une autre commande est en cours : réessayez dans quelques secondes.',
   ),
+  cancelledByStop: both(
+    'Cancelled: a stop was requested meanwhile, nothing was sent.',
+    "Annulée : un arrêt a été demandé entre-temps, rien n'a été envoyé.",
+  ),
   tooSlow: both(
     'Blue Current answered too slowly: the command was not sent. Try again.',
     "Blue Current a répondu trop lentement : la commande n'a pas été envoyée. Réessayez.",

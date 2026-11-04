@@ -78,8 +78,13 @@ everything off" of a voice assistant or a scene cannot reach them.
   again; the command is refused if it cannot be read or if the charge point
   is offline. **Stop the session** is the exception: it is sent at once,
   without reading the status, offline too (a stop to a charge point that is
-  not charging does nothing); it is refused only when not connected to Blue
-  Current or during a pause (request limit, or too many requests).
+  not charging does nothing; Blue Current may then answer with a refusal,
+  shown as "Blue Current refused the command", without consequence); it is
+  refused only when not connected to Blue Current or during a pause (request
+  limit, or too many requests). A stop cancels a command of the same charge
+  point still reading its status (pressed just before it): that command
+  answers "Cancelled: a stop was requested meanwhile, nothing was sent", so
+  no command pressed on a charge point before a stop is sent after it.
   Nothing is sent when there is nothing to do (start while charging, block a
   charge point already blocked): Gladys then shows success. A session is started only
   with a vehicle plugged in ("plug in the vehicle first" otherwise), with the

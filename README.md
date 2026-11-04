@@ -48,15 +48,18 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BlueCurrentApp)
   `allow_commands` (start, block) and `allow_reboot` are off by default. A
   stop needs no option and is sent at once, without a status read (as Home
   Assistant), offline too; it is refused only when not connected or during a
-  request-limit or 429 pause. Every other command: the option, a fresh
-  `GET_CH_STATUS` (decided on that
-  answer only, which must carry the fields of the decision, never on the
-  memory; a start needs a vehicle plugged in; nothing is sent when there is
-  nothing to do; a stop never waits for another command), the option checked
-  again just before
-  sending, sent within 3.5 s of the click or refused unsent, Gladys answered
-  within 4.3 s whatever the publication of states; a command that may have
-  left is never said "not sent": "Command sent, without confirmation".
+  request-limit or 429 pause (without a session, Blue Current may answer it
+  with a refusal, harmless). A stop cancels a command of its charge point
+  still reading the status: no command pressed on a charge point before a
+  stop leaves after it ("Cancelled: a stop was requested meanwhile, nothing
+  was sent"). Every other command: the option, a fresh `GET_CH_STATUS`
+  (decided on that answer only, which must carry the fields of the decision,
+  never on the memory; a start needs a vehicle plugged in; nothing is sent
+  when there is nothing to do; a stop never waits for another command), the
+  option checked again just before sending, sent within 3.5 s of the click
+  or refused unsent, Gladys answered within 4.3 s whatever the publication of
+  states; a command that may have left is never said "not sent": "Command
+  sent, without confirmation".
 - **Energy**: Blue Current gives no cumulative meter: no `index`, no
   `publishEnergyConsumption`. The session energy is a plain
   `electrical-vehicle-charge` sensor.

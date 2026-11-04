@@ -5,7 +5,9 @@
 // states, the transport badges, the "Test the connection" button, and the
 // commands: start, block/unblock and reboot, refused unless the configuration
 // allows them; stop, which needs no option and is sent at once, without
-// reading the status first (as Home Assistant does). index.js only wires the SDK handlers to it.
+// reading the status first (as Home Assistant does), and cancels a command
+// of its charge point still reading the status (never sent after the stop).
+// index.js only wires the SDK handlers to it.
 //
 // Never a loop: every new connection waits for a timer (backoff with jitter,
 // the request-limit pause until midnight in Amsterdam, a 429 pause, or the
@@ -137,6 +139,13 @@ export class BlueCurrentApp {
     this.waiters = new Set();
     /** Commands in flight (one, plus a stop that never waits for the queue). */
     this.commanding = 0;
+    /**
+     * Stops pressed, per charge point (evseId -> count, never reset: a count
+     * taken before a stop never matches again). A command still reading its
+     * status when a stop of its charge point is pressed is cancelled, never
+     * sent after that stop.
+     */
+    this.stopCount = new Map();
     /** The late result of a command left without one: { command, evseId, until }. */
     this.lateIgnore = undefined;
     this.lastTestAt = -Infinity;
@@ -1007,7 +1016,8 @@ export class BlueCurrentApp {
 
   /**
    * A command from Gladys: checks, then one request. A stop is refused only
-   * when nothing can be sent (not connected, request-limit or 429 pause).
+   * when nothing can be sent (not connected, request-limit or 429 pause); it
+   * cancels a command of its charge point still reading the status.
    */
   async setValue(device, feature, value) {
     const received = this.now();
@@ -1024,6 +1034,12 @@ export class BlueCurrentApp {
     if (wanted === undefined) {
       throw this.error(ERRORS.invalidValue);
     }
+    // Counted at the press, before any refusal of the stop itself: a command
+    // of this charge point still reading its status will not be sent after it.
+    if (role === FEATURES.STOP) {
+      this.stopCount.set(point.evseId, this.stopsOf(point.evseId) + 1);
+    }
+    const stopsAtPress = this.stopsOf(point.evseId);
     const paused = this.pauseMessage();
     if (paused) {
       throw this.error(paused);
@@ -1040,10 +1056,15 @@ export class BlueCurrentApp {
       const generation = this.generation;
       await (role === FEATURES.STOP
         ? this.send({ point, role, plan: STOP_PLAN, received, generation })
-        : this.command({ point, role, wanted, received, generation }));
+        : this.command({ point, role, wanted, received, generation, stopsAtPress }));
     } finally {
       this.commanding -= 1;
     }
+  }
+
+  /** The stops pressed so far on a charge point. */
+  stopsOf(evseId) {
+    return this.stopCount.get(evseId) ?? 0;
   }
 
   /**
@@ -1128,8 +1149,12 @@ export class BlueCurrentApp {
    * Reads the status, decides, sends. Gladys waits 5 s: nothing is sent later
    * than 3.5 s after the click, and Gladys is answered at 4.3 s at the latest,
    * whatever the publication of the states (which is never awaited here).
+   * The status read is the only wait between the click and the request: a
+   * stop of the charge point pressed during it cancels the command, whatever
+   * the read brings (no command pressed on a charge point before a stop
+   * leaves after it).
    */
-  async command({ point, role, wanted, received, generation }) {
+  async command({ point, role, wanted, received, generation, stopsAtPress }) {
     const sendBy = received + TIMINGS.commandSendBy;
     if (sendBy - this.now() < TIMINGS.commandMinRead) {
       throw this.error(ERRORS.tooSlow);
@@ -1139,6 +1164,12 @@ export class BlueCurrentApp {
       sendBy - TIMINGS.commandMinSend,
       NEEDED[role],
     );
+    // The last wait is over: from here to the request nothing is awaited, so
+    // no stop can come in between. A stop of this charge point pressed during
+    // the read (it has left already) cancels this command.
+    if (this.stopsOf(point.evseId) !== stopsAtPress) {
+      throw this.error(ERRORS.cancelledByStop);
+    }
     if (generation !== this.generation || !this.channel) {
       throw this.error(ERRORS.notConnected);
     }
@@ -1164,6 +1195,8 @@ export class BlueCurrentApp {
   /**
    * Sends one request and waits for its answer until 4.3 s after the click.
    * A stop comes here directly, without a status read first: never "too slow".
+   * Nothing is awaited before the request leaves: the checks of command()
+   * (option, time, a stop pressed meanwhile) still hold when it does.
    */
   async send({ point, role, plan, received, generation }) {
     const late = this.lateIgnore;
