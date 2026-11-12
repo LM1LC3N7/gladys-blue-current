@@ -8,9 +8,10 @@
   },
   "version": "0.1.3",
   "docker_image": "ghcr.io/lm1lc3n7/gladys-blue-current:0.1.3",
-  "gladys_version": ">=4.86.0",
+  "gladys_version": ">=5.3.0",
   "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-blue-current/main/cover.png",
   "categories": ["energy"],
+  "countries": ["NL", "BE"],
   "transports": ["cloud"],
   "config_schema": [
     {

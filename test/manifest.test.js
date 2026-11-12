@@ -40,8 +40,8 @@ test('the store basics, and the version set by hand to 0.1.0 everywhere', () => 
   assert.equal(lock.packages[''].version, manifest.version);
   assert.match(
     manifest.gladys_version,
-    /^>=4\.86\.0$/,
-    'charging-station and text/select need 4.86',
+    /^>=5\.3\.0$/,
+    'charging-station and text/select need 4.86, the catalog countries 5.3',
   );
   assert.deepEqual(manifest.transports, ['cloud']);
   assert.deepEqual(manifest.categories, ['energy']);
@@ -134,4 +134,13 @@ test('the actions are those of the code, within their timeout', () => {
   for (const action of manifest.actions) {
     assert.ok(action.timeout_seconds >= 5 && action.timeout_seconds <= 120);
   }
+});
+
+test('the catalog countries: the Netherlands and Belgium, which needs Gladys >= 5.3.0', () => {
+  assert.deepEqual(manifest.countries, ['NL', 'BE']);
+  const [major, minor] = manifest.gladys_version
+    .match(/>=\s*(\d+)\.(\d+)/)
+    .slice(1)
+    .map(Number);
+  assert.ok(major > 5 || (major === 5 && minor >= 3), 'countries needs Gladys 5.3.0');
 });
