@@ -61,7 +61,6 @@ up to date at the end of every milestone.
 - A stop pressed while the charge point is removed from the account (during the 2.8 s status read) is refused
   "unknown charge point" and not counted, so a command pressed before it can still go: count the stop before
   that check too (review vague8-xhigh-r4).
-- `gladys_version` is still `>=4.86.0` since 0.1.0; the module sheet asks `>=5.1.0`.
 - CLAUDE.md: one line too long (cosmetic).
 
 ## Open questions (for Louis)
@@ -78,8 +77,9 @@ up to date at the end of every milestone.
   music types; no effect here (`poll_frequency` unused, the devices carry
   `should_poll: false`). Every feature already had a numeric `min` and `max`
   (text features 0/0); `test/helpers/coreFeature.js` now checks each one against
-  the core model. `npm test` runs with `--test-timeout=60000`. `keywords`,
-  `countries` and `gladys_version >= 5.3.0` wait until Gladys 5.3 is widespread.
+  the core model. `npm test` runs with `--test-timeout=60000`. `keywords`
+  waits until Gladys 5.3 is widespread; `countries` (`NL`, `BE`) is declared,
+  with `gladys_version >= 5.3.0`.
 - **Version 0.1.0 set by hand** in `package.json`, `package-lock.json`, the
   manifest and the `docker_image` tag
   (`ghcr.io/lm1lc3n7/gladys-blue-current:0.1.0`); the first patch release
@@ -191,6 +191,7 @@ up to date at the end of every milestone.
 - **Every device carries all its features** (three phases even on a
   single-phase charge point), and keeps every feature of the created device:
   nothing is ever lost on a republication.
-- **Gladys 4.86.0** at least (charging-station features, text/select).
+- **Gladys 5.3.0** at least (catalog countries; charging-station features and
+  text/select need 4.86.0).
 - **Offline**: the readings keep their last value; the status, the
   connector and the badge (unreachable) say it.
